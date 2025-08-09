@@ -1,0 +1,14 @@
+[Unit]
+Description=Google Drive Monitor Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/drive-monitor
+ExecStart=/opt/drive-monitor/venv/bin/python main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
