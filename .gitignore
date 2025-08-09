@@ -1,19 +1,63 @@
-# Environment variables
-.env
+# ========================================
+# Google Drive Monitor System - .gitignore
+# ========================================
 
-# Google API credentials and tokens
+# CRITICAL SECURITY - Google API credentials and service accounts
+service-account.json
 credentials.json
 token.json
+*.json
+!requirements.json
+!package*.json
 
-# Downloaded files
+# Environment variables and sensitive configuration
+.env
+.env.local
+.env.*.local
+*.env
+
+# ========================================
+# Generated Data and Runtime Files
+# ========================================
+
+# Downloaded files and temporary data
 downloads/
-*.log
+processed/
+temp/
+tmp/
 
+# Log files
+logs/
+*.log
+*.log.*
+
+# Data and cache files
+data/
+cache/
+*.cache
+processed_files.json
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary extraction directories
+extract_*/
+temp_*/
+validate_*/
+
+# ========================================
 # Python
+# ========================================
+
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# C extensions
 *.so
+
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -32,8 +76,77 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
-# Virtual environments
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
 .env
 .venv
 env/
@@ -41,23 +154,173 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+drive-monitor/
 
-# IDE
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# ========================================
+# IDEs and Editors
+# ========================================
+
+# Visual Studio Code
 .vscode/
+*.code-workspace
+
+# PyCharm
 .idea/
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Vim
 *.swp
 *.swo
 *~
+.netrwhist
 
-# OS
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# Atom
+.atom/
+
+# ========================================
+# Operating Systems
+# ========================================
+
+# macOS
 .DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
 .Trashes
-ehthumbs.db
-Thumbs.db
+.AppleDouble
+.LSOverride
+Icon
 
-# Cache files
-processed_files.json
-*.cache
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.tmp
+*.temp
+~*
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ========================================
+# Archive and Backup Files
+# ========================================
+
+# Backup files
+*.backup
+*.bak
+*.orig
+*.old
+*.save
+*~
+
+# Archive files (for security)
+*.zip
+*.rar
+*.7z
+*.tar
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.gz
+*.bz2
+*.xz
+!test_files/*.zip
+!examples/*.zip
+
+# ========================================
+# System and Application Specific
+# ========================================
+
+# Google API related
+quickstart-*.json
+client_secret*.json
+
+# Systemd service files (keep templates only)
+*.service
+!templates/*.service
+
+# Process IDs and lock files
+*.pid
+*.lock
+
+# Application specific temporary files
+drive-monitor*.log
+monitoring*.log
+
+# Configuration overrides
+config.local.py
+config.override.py
+settings.local.json
+
+# Node.js (if used for any tooling)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ========================================
+# Custom Project Exclusions
+# ========================================
+
+# Test data and mock files
+test_data/
+mock_data/
+sample_files/
+!tests/fixtures/
+
+# Deployment artifacts
+deployment/
+deploy_temp/
+
+# Performance and profiling
+*.prof
+*.pstats
+
+# Documentation builds
+docs/build/
+docs/dist/

@@ -4,34 +4,65 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Config:
-    GOOGLE_CREDENTIALS_FILE = os.getenv('GOOGLE_CREDENTIALS_FILE', 'credentials.json')
-    GOOGLE_TOKEN_FILE = os.getenv('GOOGLE_TOKEN_FILE', 'token.json')
+    # Google API配置
+    DRIVE_FOLDER_ID = os.getenv('DRIVE_FOLDER_ID', '1NXEAm1QWAKpyZLYWHYzBNdt3kZlMV3hK')
+    SPREADSHEET_ID = os.getenv('SPREADSHEET_ID', '1l26xiptV_rYxy0YKMJXhBHUeDyRS24HfrZTopWNmFiw')
+    SERVICE_ACCOUNT_FILE = os.getenv('SERVICE_ACCOUNT_FILE', 'service-account.json')
     
     SCOPES = [
         'https://www.googleapis.com/auth/drive.readonly',
-        'https://www.googleapis.com/auth/drive.metadata.readonly'
+        'https://www.googleapis.com/auth/spreadsheets'
     ]
     
-    MONITORED_FOLDER_ID = os.getenv('MONITORED_FOLDER_ID')
+    # 监控配置
+    CHECK_INTERVAL = int(os.getenv('CHECK_INTERVAL', '30'))
+    ENABLE_MONITORING = os.getenv('ENABLE_MONITORING', 'True').lower() == 'true'
+    MAX_CONCURRENT_DOWNLOADS = int(os.getenv('MAX_CONCURRENT_DOWNLOADS', '3'))
     
-    POLLING_INTERVAL = int(os.getenv('POLLING_INTERVAL', '60'))
+    # 文件处理配置
+    DOWNLOAD_PATH = os.getenv('DOWNLOAD_PATH', './downloads')
+    PROCESSED_PATH = os.getenv('PROCESSED_PATH', './processed')
+    MAX_FILE_SIZE_MB = int(os.getenv('MAX_FILE_SIZE_MB', '500'))
+    ALLOWED_EXTENSIONS = os.getenv('ALLOWED_EXTENSIONS', '.zip,.rar,.7z,.tar,.gz').split(',')
+    DEFAULT_PASSWORDS = os.getenv('DEFAULT_PASSWORDS', '123456,password').split(',')
     
-    DOWNLOAD_DIRECTORY = os.getenv('DOWNLOAD_DIRECTORY', './downloads')
-    
-    SUPPORTED_FILE_TYPES = os.getenv('SUPPORTED_FILE_TYPES', 'pdf,docx,txt,jpg,png').split(',')
-    
-    MAX_FILE_SIZE_MB = int(os.getenv('MAX_FILE_SIZE_MB', '100'))
-    
+    # 日志配置
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
+    LOG_FILE = os.getenv('LOG_FILE', 'logs/monitor.log')
+    LOG_MAX_SIZE = int(os.getenv('LOG_MAX_SIZE', str(10 * 1024 * 1024)))  # 10MB
+    LOG_BACKUP_COUNT = int(os.getenv('LOG_BACKUP_COUNT', '5'))
+    
+    # 重试配置
+    MAX_RETRY_ATTEMPTS = int(os.getenv('MAX_RETRY_ATTEMPTS', '3'))
+    RETRY_DELAY = int(os.getenv('RETRY_DELAY', '5'))
+    
+    # Sheets配置
+    SHEET_NAME = os.getenv('SHEET_NAME', 'Sheet1')
+    BATCH_WRITE_SIZE = int(os.getenv('BATCH_WRITE_SIZE', '10'))
+    
+    # 清理配置
+    KEEP_PROCESSED_DAYS = int(os.getenv('KEEP_PROCESSED_DAYS', '30'))
+    CLEAN_TEMP_FILES = os.getenv('CLEAN_TEMP_FILES', 'True').lower() == 'true'
+    
+    # 数据存储路径
+    PROCESSED_FILES_JSON = os.path.join('data', 'processed_files.json')
     
     @classmethod
     def validate(cls):
-        if not cls.MONITORED_FOLDER_ID:
-            raise ValueError("MONITORED_FOLDER_ID is required")
+        """验证配置有效性"""
+        if not cls.DRIVE_FOLDER_ID:
+            raise ValueError("DRIVE_FOLDER_ID is required")
         
-        if not os.path.exists(cls.GOOGLE_CREDENTIALS_FILE):
-            raise ValueError(f"Google credentials file not found: {cls.GOOGLE_CREDENTIALS_FILE}")
+        if not cls.SPREADSHEET_ID:
+            raise ValueError("SPREADSHEET_ID is required")
+            
+        if not os.path.exists(cls.SERVICE_ACCOUNT_FILE):
+            raise ValueError(f"Service account file not found: {cls.SERVICE_ACCOUNT_FILE}")
         
-        os.makedirs(cls.DOWNLOAD_DIRECTORY, exist_ok=True)
+        # 创建必要的目录
+        os.makedirs(cls.DOWNLOAD_PATH, exist_ok=True)
+        os.makedirs(cls.PROCESSED_PATH, exist_ok=True)
+        os.makedirs(os.path.dirname(cls.LOG_FILE), exist_ok=True)
+        os.makedirs('data', exist_ok=True)
         
         return True
