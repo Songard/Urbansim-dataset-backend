@@ -8,3 +8,4 @@ rarfile
 py7zr
 patool
 colorama
+pyyaml

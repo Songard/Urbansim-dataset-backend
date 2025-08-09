@@ -17,8 +17,8 @@ class SheetsWriter:
         self.spreadsheet_id = Config.SPREADSHEET_ID
         self.sheet_name = Config.SHEET_NAME
         self.headers = [
-            '文件ID', '文件名', '上传时间', '文件大小', '文件类型',
-            '解压状态', '文件数量', '处理时间', '错误信息', '备注'
+            'File ID', 'File Name', 'Upload Time', 'File Size', 'File Type',
+            'Extract Status', 'File Count', 'Process Time', 'Validation Score', 'Error Message', 'Notes'
         ]
         self._initialize_service()
         
@@ -40,7 +40,7 @@ class SheetsWriter:
             if not self._verify_and_get_sheet_name():
                 return False
             
-            range_name = f"'{self.sheet_name}'!A1:J1"
+            range_name = f"'{self.sheet_name}'!A1:K1"
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.spreadsheet_id,
                 range=range_name
@@ -108,7 +108,7 @@ class SheetsWriter:
                 logger.info(f"Using first sheet: '{self.sheet_name}'")
                 
                 # Try again with proper sheet name
-                range_name = f"'{self.sheet_name}'!A1:J1"
+                range_name = f"'{self.sheet_name}'!A1:K1"
                 result = self.service.spreadsheets().values().get(
                     spreadsheetId=self.spreadsheet_id,
                     range=range_name
@@ -129,7 +129,7 @@ class SheetsWriter:
             
     def _create_headers(self):
         try:
-            range_name = f"'{self.sheet_name}'!A1:J1"
+            range_name = f"'{self.sheet_name}'!A1:K1"
             body = {
                 'values': [self.headers]
             }

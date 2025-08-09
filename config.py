@@ -47,6 +47,33 @@ class Config:
     # 数据存储路径
     PROCESSED_FILES_JSON = os.path.join('data', 'processed_files.json')
     
+    # 邮件通知配置
+    EMAIL_NOTIFICATIONS_ENABLED = os.getenv('EMAIL_NOTIFICATIONS_ENABLED', 'False').lower() == 'true'
+    
+    # SMTP服务器配置
+    SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+    SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
+    SMTP_USE_TLS = os.getenv('SMTP_USE_TLS', 'True').lower() == 'true'
+    SMTP_USE_SSL = os.getenv('SMTP_USE_SSL', 'False').lower() == 'true'
+    
+    # 邮件认证
+    SMTP_USERNAME = os.getenv('SMTP_USERNAME', '')
+    SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
+    
+    # 发送者信息
+    SENDER_EMAIL = os.getenv('SENDER_EMAIL', os.getenv('SMTP_USERNAME', ''))
+    SENDER_NAME = os.getenv('SENDER_NAME', 'Google Drive Monitor')
+    
+    # 收件人列表（逗号分隔）
+    RECIPIENT_EMAILS = [email.strip() for email in os.getenv('RECIPIENT_EMAILS', '').split(',') if email.strip()]
+    
+    # 邮件通知策略
+    NOTIFY_ON_SUCCESS = os.getenv('NOTIFY_ON_SUCCESS', 'True').lower() == 'true'
+    NOTIFY_ON_ERROR = os.getenv('NOTIFY_ON_ERROR', 'True').lower() == 'true'
+    NOTIFY_DAILY_REPORT = os.getenv('NOTIFY_DAILY_REPORT', 'False').lower() == 'true'
+    NOTIFY_ON_LARGE_FILES = os.getenv('NOTIFY_ON_LARGE_FILES', 'True').lower() == 'true'
+    LARGE_FILE_THRESHOLD_MB = int(os.getenv('LARGE_FILE_THRESHOLD_MB', '100'))
+    
     @classmethod
     def validate(cls):
         """验证配置有效性"""

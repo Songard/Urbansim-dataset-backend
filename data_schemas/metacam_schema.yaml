@@ -1,0 +1,155 @@
+# MetaCam数据包格式验证规范
+# 用于验证从Google Drive下载的压缩包是否包含完整的MetaCam数据结构
+
+schema_name: "MetaCam Data Package"
+schema_version: "1.0"
+description: "MetaCam三维重建数据包标准格式"
+
+# 数据包可能的根结构（考虑外层文件夹的情况）
+root_patterns:
+  - "."  # 直接解压到当前目录
+  - "*"  # 外层有一个文件夹
+
+# 必需的目录结构
+required_directories:
+  - path: "camera"
+    description: "相机数据目录"
+    subdirectories:
+      - path: "camera/left"
+        description: "左相机数据"
+        optional: false
+      - path: "camera/right" 
+        description: "右相机数据"
+        optional: false
+  
+  - path: "data"
+    description: "原始数据目录"
+    optional: false
+    
+  - path: "info"
+    description: "设备信息和配置目录"
+    optional: false
+
+# 必需的文件
+required_files:
+  # 根目录必需文件
+  - path: "colorized-realtime.las"
+    description: "彩色点云数据文件"
+    file_type: "binary"
+    min_size: 1048576  # 1MB
+    max_size: 1073741824  # 1GB
+    extensions: [".las"]
+    
+  - path: "points3D.ply"
+    description: "三维点云文件"
+    file_type: "binary"
+    min_size: 1048576  # 1MB
+    max_size: 2147483648  # 2GB
+    extensions: [".ply"]
+    
+  - path: "metadata.yaml"
+    description: "元数据配置文件"
+    file_type: "text"
+    min_size: 100  # 100 bytes
+    max_size: 10240  # 10KB
+    extensions: [".yaml", ".yml"]
+    
+  - path: "Preview.jpg"
+    description: "预览图片"
+    file_type: "binary"
+    min_size: 1024  # 1KB
+    max_size: 10485760  # 10MB
+    extensions: [".jpg", ".jpeg"]
+    
+  - path: "Preview.pcd"
+    description: "预览点云数据"
+    file_type: "binary"
+    min_size: 1024  # 1KB
+    max_size: 104857600  # 100MB
+    extensions: [".pcd"]
+
+# 可选文件
+optional_files:
+  - path: "log.7z"
+    description: "日志压缩包"
+    file_type: "binary"
+    max_size: 52428800  # 50MB
+    extensions: [".7z", ".zip", ".gz"]
+    
+  - path: "sign"
+    description: "签名文件"
+    file_type: "text"
+    max_size: 65536  # 64KB
+
+# data目录下的必需文件
+data_directory_files:
+  - path: "data/data_0"
+    description: "主数据文件"
+    file_type: "binary"
+    min_size: 1048576  # 1MB
+    max_size: 2147483648  # 2GB
+
+# info目录下的必需文件
+info_directory_files:
+  - path: "info/calibration.json"
+    description: "相机标定参数"
+    file_type: "json"
+    min_size: 100
+    max_size: 51200  # 50KB
+    extensions: [".json"]
+    
+  - path: "info/device_info.json"
+    description: "设备信息"
+    file_type: "json"
+    min_size: 50
+    max_size: 10240  # 10KB
+    extensions: [".json"]
+    
+  - path: "info/rtk_info.json"
+    description: "RTK定位信息"
+    file_type: "json"
+    min_size: 10
+    max_size: 1024  # 1KB
+    extensions: [".json"]
+
+# 验证级别
+validation_levels:
+  strict:
+    description: "严格模式 - 所有必需文件和目录必须存在"
+    require_all_mandatory: true
+    allow_extra_files: false
+    
+  standard:
+    description: "标准模式 - 主要文件存在即可"
+    require_all_mandatory: true
+    allow_extra_files: true
+    
+  lenient:
+    description: "宽松模式 - 允许部分文件缺失"
+    require_all_mandatory: false
+    allow_extra_files: true
+
+# 文件内容验证规则
+content_validation:
+  json_files:
+    - path: "info/calibration.json"
+      required_keys: ["camera_matrix", "distortion_coeffs"]
+    - path: "info/device_info.json"
+      required_keys: ["device_id", "firmware_version"]
+    - path: "info/rtk_info.json"
+      required_keys: ["status"]
+      
+  yaml_files:
+    - path: "metadata.yaml"
+      required_keys: ["data_type", "timestamp", "location"]
+
+# 验证警告和错误消息
+messages:
+  missing_required_dir: "缺少必需目录: {path}"
+  missing_required_file: "缺少必需文件: {path}"
+  file_too_small: "文件 {path} 过小: {size} < {min_size}"
+  file_too_large: "文件 {path} 过大: {size} > {max_size}"
+  invalid_extension: "文件 {path} 扩展名不符合要求: {actual} not in {expected}"
+  invalid_json: "JSON文件 {path} 格式错误: {error}"
+  missing_json_key: "JSON文件 {path} 缺少必需字段: {key}"
+  extra_files_found: "发现额外文件: {files}"

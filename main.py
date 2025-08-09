@@ -10,6 +10,15 @@ from typing import List, Dict, Any
 from config import Config
 from utils.logger import get_logger, log_system_startup, log_system_shutdown, log_error_with_context
 from utils.validators import validate_environment
+# 邮件通知模块导入（可选）
+try:
+    from utils.email_notifier import EmailNotifier
+    EMAIL_MODULE_AVAILABLE = True
+except ImportError as e:
+    print(f"警告: 邮件通知模块不可用: {e}")
+    print("系统将在无邮件通知的情况下运行")
+    EmailNotifier = None
+    EMAIL_MODULE_AVAILABLE = False
 from monitor.drive_monitor import DriveMonitor
 from monitor.file_tracker import FileTracker
 from processors.file_downloader import FileDownloader
@@ -45,6 +54,7 @@ class GoogleDriveMonitorSystem:
         self.file_downloader = None
         self.archive_handler = None
         self.sheets_writer = None
+        self.email_notifier = None
         self.running = True
         self.stats = {
             'files_processed': 0,
@@ -82,6 +92,16 @@ class GoogleDriveMonitorSystem:
             self.archive_handler = ArchiveHandler()
             self.sheets_writer = SheetsWriter()
             
+            # 初始化邮件通知器（如果启用且可用）
+            if Config.EMAIL_NOTIFICATIONS_ENABLED and EMAIL_MODULE_AVAILABLE:
+                self.email_notifier = EmailNotifier()
+                logger.info("Email notifications enabled")
+            elif Config.EMAIL_NOTIFICATIONS_ENABLED and not EMAIL_MODULE_AVAILABLE:
+                logger.warning("Email notifications requested but module not available")
+                self.email_notifier = None
+            else:
+                logger.info("Email notifications disabled")
+            
             # 测试连接
             if not self._test_connections():
                 logger.error("Connection tests failed")
@@ -92,6 +112,9 @@ class GoogleDriveMonitorSystem:
             
         except Exception as e:
             log_error_with_context(e, {'phase': 'initialization'})
+            # 发送系统错误通知
+            if hasattr(self, 'email_notifier') and self.email_notifier:
+                self.email_notifier.notify_error("System Initialization Error", str(e), {'phase': 'initialization'})
             return False
     
     def _test_connections(self) -> bool:
@@ -111,6 +134,13 @@ class GoogleDriveMonitorSystem:
             # 测试下载器
             downloader_status = self.file_downloader.get_download_status()
             logger.info(f"File Downloader: max_concurrent={downloader_status['max_concurrent']}")
+            
+            # 测试邮件通知（如果启用）
+            if self.email_notifier:
+                if self.email_notifier.test_connection():
+                    logger.info("Email notifications: connection test passed")
+                else:
+                    logger.warning("Email notifications: connection test failed")
             
             logger.success("All connection tests passed")
             return True
@@ -150,6 +180,7 @@ class GoogleDriveMonitorSystem:
             extract_status = "不适用"
             file_count = ""
             error_message = ""
+            validation_score = ""
             
             try:
                 # 检测是否为压缩文件
@@ -158,13 +189,27 @@ class GoogleDriveMonitorSystem:
                 if archive_format:
                     logger.info(f"检测到压缩文件格式: {archive_format}")
                     
-                    # 尝试验证压缩文件
-                    validation_result = self.archive_handler.validate_archive(download_path)
+                    # 尝试验证压缩文件（包含数据格式验证）
+                    validation_result = self.archive_handler.validate_archive(download_path, validate_data_format=True)
                     
                     if validation_result['is_valid']:
                         extract_status = "成功"
                         file_count = validation_result['file_count']
-                        logger.success(f"压缩文件验证成功: {file_count} 个文件")
+                        
+                        # 检查数据格式验证结果
+                        if validation_result.get('data_validation'):
+                            data_val = validation_result['data_validation']
+                            validation_score = f"{data_val['score']:.1f}/100"
+                            if data_val['is_valid']:
+                                logger.success(f"压缩文件和数据格式验证成功: {file_count} 个文件, 得分: {data_val['score']:.1f}/100")
+                                extract_status = f"成功 (数据验证: {data_val['score']:.1f}/100)"
+                            else:
+                                logger.warning(f"压缩文件完整，但数据格式验证失败: {data_val['summary']}")
+                                extract_status = f"部分成功 (数据格式问题: {len(data_val['errors'])}个错误)"
+                                error_message = f"数据格式问题: {', '.join(data_val['errors'][:3])}"
+                        else:
+                            validation_score = "N/A (跳过验证)"
+                            logger.success(f"压缩文件验证成功: {file_count} 个文件 (跳过数据格式验证)")
                     else:
                         extract_status = "失败"
                         error_message = validation_result.get('error', '未知错误')
@@ -175,12 +220,26 @@ class GoogleDriveMonitorSystem:
                             logger.info("尝试使用默认密码解压...")
                             correct_password = self.archive_handler.try_passwords(download_path)
                             if correct_password:
-                                validation_result = self.archive_handler.validate_archive(download_path, correct_password)
+                                validation_result = self.archive_handler.validate_archive(download_path, correct_password, validate_data_format=True)
                                 if validation_result['is_valid']:
                                     extract_status = "成功"
                                     file_count = validation_result['file_count']
                                     error_message = ""
-                                    logger.success(f"使用密码解压成功: {file_count} 个文件")
+                                    
+                                    # 检查数据格式验证结果
+                                    if validation_result.get('data_validation'):
+                                        data_val = validation_result['data_validation']
+                                        validation_score = f"{data_val['score']:.1f}/100"
+                                        if data_val['is_valid']:
+                                            logger.success(f"使用密码解压成功，数据格式验证通过: {file_count} 个文件, 得分: {data_val['score']:.1f}/100")
+                                            extract_status = f"成功 (密码+数据验证: {data_val['score']:.1f}/100)"
+                                        else:
+                                            logger.warning(f"使用密码解压成功，但数据格式验证失败: {data_val['summary']}")
+                                            extract_status = f"部分成功 (密码成功，数据格式问题)"
+                                            error_message = f"数据格式问题: {', '.join(data_val['errors'][:3])}"
+                                    else:
+                                        validation_score = "N/A (跳过验证)"
+                                        logger.success(f"使用密码解压成功: {file_count} 个文件")
                 
             except Exception as e:
                 extract_status = "失败"
@@ -197,14 +256,24 @@ class GoogleDriveMonitorSystem:
                 'extract_status': extract_status,
                 'file_count': file_count,
                 'process_time': process_start_time,
+                'validation_score': validation_score,
                 'error_message': error_message,
-                'notes': f"下载路径: {download_path}"
+                'notes': f"Download path: {download_path}"
             }
             
             if self.sheets_writer.append_record(sheets_record):
                 logger.success(f"已写入Sheets: {file_name}")
             else:
                 logger.warning(f"Sheets写入失败，但文件处理成功: {file_name}")
+            
+            # 发送成功通知邮件
+            if self.email_notifier and Config.NOTIFY_ON_SUCCESS:
+                # 检查是否为大文件
+                is_large_file = file_info.get('size', 0) / (1024 * 1024) > Config.LARGE_FILE_THRESHOLD_MB
+                if Config.NOTIFY_ON_LARGE_FILES and is_large_file:
+                    self.email_notifier.notify_file_processed(file_info, True)
+                elif not is_large_file:  # 普通文件根据配置发送
+                    self.email_notifier.notify_file_processed(file_info, True)
             
             # 4. 更新文件追踪记录
             self.file_tracker.add_processed_file(
@@ -258,13 +327,18 @@ class GoogleDriveMonitorSystem:
                 'upload_time': file_info.get('createdTime', ''),
                 'file_size': file_info.get('size', 0),
                 'file_type': file_info.get('mimeType', ''),
-                'extract_status': '失败',
+                'extract_status': 'Failed',
                 'file_count': '',
                 'process_time': start_time,
+                'validation_score': 'N/A (Failed)',
                 'error_message': error_msg,
-                'notes': '处理失败'
+                'notes': 'Processing failed'
             }
             self.sheets_writer.append_record(sheets_record)
+            
+            # 发送失败通知邮件
+            if self.email_notifier and Config.NOTIFY_ON_ERROR:
+                self.email_notifier.notify_file_processed(file_info, False, error_msg)
             
             # 更新文件追踪
             self.file_tracker.add_processed_file(
@@ -398,6 +472,10 @@ class GoogleDriveMonitorSystem:
             logger.info(f"  失败文件: {stats['files_failed_session']}")
             logger.info(f"  总计处理: {stats['total_files_processed']}")
             logger.info(f"  成功率: {stats['success_rate']:.1f}%")
+            
+            # 发送系统状态报告邮件
+            if self.email_notifier and Config.NOTIFY_DAILY_REPORT:
+                self.email_notifier.notify_system_status(stats)
             
         except Exception as e:
             logger.error(f"关闭系统时出错: {e}")

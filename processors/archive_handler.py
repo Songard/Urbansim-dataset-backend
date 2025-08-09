@@ -11,6 +11,7 @@ import tarfile
 import gzip
 
 from config import Config
+from validation import ValidationManager, ValidationLevel
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,8 @@ class ArchiveHandler:
     def __init__(self):
         """初始化压缩文件处理器"""
         self.temp_extract_dir = None
-        logger.info("ArchiveHandler initialized")
+        self.validation_manager = ValidationManager()
+        logger.info("ArchiveHandler initialized with new validation system")
     
     def detect_format(self, file_path: str) -> Optional[str]:
         """
@@ -347,13 +349,15 @@ class ArchiveHandler:
             logger.error(f"Unexpected error extracting GZ: {e}")
             return False
     
-    def validate_archive(self, file_path: str, password: str = None) -> Dict:
+    def validate_archive(self, file_path: str, password: str = None, 
+                        validate_data_format: bool = True) -> Dict:
         """
         验证压缩文件
         
         Args:
             file_path (str): 压缩文件路径
             password (str): 密码（可选）
+            validate_data_format (bool): 是否验证数据格式
             
         Returns:
             Dict: 验证结果
@@ -363,7 +367,8 @@ class ArchiveHandler:
                 'file_count': int,
                 'total_size': int,
                 'file_list': list,
-                'error': str or None
+                'error': str or None,
+                'data_validation': dict or None
             }
         """
         result = {
@@ -372,7 +377,8 @@ class ArchiveHandler:
             'file_count': 0,
             'total_size': 0,
             'file_list': [],
-            'error': None
+            'error': None,
+            'data_validation': None
         }
         
         try:
@@ -393,12 +399,11 @@ class ArchiveHandler:
             result['file_list'] = file_list
             result['file_count'] = len(file_list)
             
-            # 尝试部分解压以验证完整性
+            # 尝试解压以验证完整性和数据格式
             temp_dir = tempfile.mkdtemp(prefix="validate_")
             try:
                 extract_result = self.extract_archive(file_path, temp_dir, password)
                 if extract_result:
-                    result['is_valid'] = True
                     # 计算总大小
                     total_size = 0
                     for root, dirs, files in os.walk(extract_result):
@@ -407,6 +412,55 @@ class ArchiveHandler:
                             if os.path.exists(file_path_full):
                                 total_size += os.path.getsize(file_path_full)
                     result['total_size'] = total_size
+                    
+                    # 数据格式验证
+                    if validate_data_format:
+                        logger.info("开始验证数据格式...")
+                        try:
+                            validation_result = self.validation_manager.validate(
+                                extract_result, 
+                                ValidationLevel.STANDARD,
+                                format_hint='metacam'
+                            )
+                            
+                            result['data_validation'] = {
+                                'is_valid': validation_result.is_valid,
+                                'score': validation_result.score,
+                                'errors': validation_result.errors,
+                                'warnings': validation_result.warnings,
+                                'missing_files': validation_result.missing_files,
+                                'missing_directories': validation_result.missing_directories,
+                                'summary': validation_result.summary,
+                                'validator_type': validation_result.validator_type
+                            }
+                            
+                            # 整体验证结果：压缩文件完整性 AND 数据格式验证
+                            result['is_valid'] = validation_result.is_valid
+                            
+                            if not validation_result.is_valid:
+                                result['error'] = f"数据格式验证失败: {validation_result.summary}"
+                                logger.warning(f"数据格式验证失败: {len(validation_result.errors)}个错误")
+                            else:
+                                logger.info(f"数据格式验证通过: {validation_result.summary}")
+                                
+                        except Exception as e:
+                            logger.error(f"数据格式验证异常: {e}")
+                            result['data_validation'] = {
+                                'is_valid': False,
+                                'score': 0.0,
+                                'errors': [f"Validation exception: {e}"],
+                                'warnings': [],
+                                'missing_files': [],
+                                'missing_directories': [],
+                                'summary': f"Validation failed: {e}",
+                                'validator_type': 'unknown'
+                            }
+                            result['is_valid'] = False
+                            result['error'] = f"数据格式验证异常: {e}"
+                    else:
+                        # 仅验证压缩文件完整性
+                        result['is_valid'] = True
+                        logger.info("跳过数据格式验证")
                 else:
                     result['error'] = "Archive extraction failed"
                     
@@ -500,8 +554,8 @@ class ArchiveHandler:
                 if any(keyword in str(e).lower() for keyword in ['password', 'encrypted']):
                     info['is_password_protected'] = True
             
-            # 验证压缩文件
-            info['validation_result'] = self.validate_archive(file_path, password)
+            # 验证压缩文件（包含数据格式验证）
+            info['validation_result'] = self.validate_archive(file_path, password, validate_data_format=True)
             
         except Exception as e:
             logger.error(f"Error getting archive info: {e}")
