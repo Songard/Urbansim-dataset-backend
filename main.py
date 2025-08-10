@@ -24,6 +24,7 @@ from monitor.file_tracker import FileTracker
 from processors.file_downloader import FileDownloader
 from processors.archive_handler import ArchiveHandler
 from sheets.sheets_writer import SheetsWriter
+from validation.manager import ValidationManager
 
 logger = get_logger(__name__)
 
@@ -55,6 +56,7 @@ class GoogleDriveMonitorSystem:
         self.archive_handler = None
         self.sheets_writer = None
         self.email_notifier = None
+        self.validation_manager = None
         self.running = True
         self.stats = {
             'files_processed': 0,
@@ -91,6 +93,7 @@ class GoogleDriveMonitorSystem:
             self.file_downloader = FileDownloader()
             self.archive_handler = ArchiveHandler()
             self.sheets_writer = SheetsWriter()
+            self.validation_manager = ValidationManager()
             
             # 初始化邮件通知器（如果启用且可用）
             if Config.EMAIL_NOTIFICATIONS_ENABLED and EMAIL_MODULE_AVAILABLE:
@@ -190,7 +193,35 @@ class GoogleDriveMonitorSystem:
                     logger.info(f"检测到压缩文件格式: {archive_format}")
                     
                     # 尝试验证压缩文件（包含数据格式验证）
-                    validation_result = self.archive_handler.validate_archive(download_path, validate_data_format=True)
+                    archive_validation_result = self.archive_handler.validate_archive(download_path, validate_data_format=True)
+                    
+                    # 使用新的validation系统进行额外的数据验证
+                    data_validation_result = None
+                    try:
+                        # 尝试对解压后的数据进行validation
+                        if archive_validation_result['is_valid']:
+                            # 创建临时解压目录进行验证
+                            temp_extract_dir = os.path.join(Config.TEMP_DIR, f"validation_{file_id}")
+                            os.makedirs(temp_extract_dir, exist_ok=True)
+                            
+                            # 解压文件进行验证
+                            if self.archive_handler.extract_archive(download_path, temp_extract_dir):
+                                data_validation_result = self.validation_manager.validate(temp_extract_dir)
+                                logger.info(f"Data validation completed: {data_validation_result.summary}")
+                                logger.debug(f"Validation result type: {type(data_validation_result)}")
+                                
+                                # 清理临时目录
+                                import shutil
+                                try:
+                                    shutil.rmtree(temp_extract_dir)
+                                except Exception as cleanup_e:
+                                    logger.warning(f"Failed to cleanup temp directory: {cleanup_e}")
+                    except Exception as e:
+                        logger.warning(f"Data validation failed: {e}")
+                        # validation失败时，设置为None
+                        data_validation_result = None
+                        
+                    validation_result = archive_validation_result
                     
                     if validation_result['is_valid']:
                         extract_status = "成功"
@@ -257,9 +288,11 @@ class GoogleDriveMonitorSystem:
                 'file_count': file_count,
                 'process_time': process_start_time,
                 'validation_score': validation_score,
+                'validation_result': data_validation_result,  # 添加validation结果
                 'error_message': error_message,
                 'notes': f"Download path: {download_path}"
             }
+            
             
             if self.sheets_writer.append_record(sheets_record):
                 logger.success(f"已写入Sheets: {file_name}")

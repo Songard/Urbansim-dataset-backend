@@ -22,9 +22,16 @@ class Config:
     # 文件处理配置
     DOWNLOAD_PATH = os.getenv('DOWNLOAD_PATH', './downloads')
     PROCESSED_PATH = os.getenv('PROCESSED_PATH', './processed')
+    TEMP_DIR = os.getenv('TEMP_DIR', './temp')  # 临时目录配置
     MAX_FILE_SIZE_MB = int(os.getenv('MAX_FILE_SIZE_MB', '500'))
     ALLOWED_EXTENSIONS = os.getenv('ALLOWED_EXTENSIONS', '.zip,.rar,.7z,.tar,.gz').split(',')
     DEFAULT_PASSWORDS = os.getenv('DEFAULT_PASSWORDS', '123456,password').split(',')
+    
+    # 下载优化配置
+    DOWNLOAD_CHUNK_SIZE_MB = int(os.getenv('DOWNLOAD_CHUNK_SIZE_MB', '32'))  # 32MB chunks for better speed
+    DOWNLOAD_TIMEOUT = int(os.getenv('DOWNLOAD_TIMEOUT', '300'))  # 5 minutes timeout
+    DOWNLOAD_RETRIES = int(os.getenv('DOWNLOAD_RETRIES', '3'))  # Maximum retry attempts
+    ENABLE_HTTP2 = os.getenv('ENABLE_HTTP2', 'True').lower() == 'true'  # HTTP/2 for better performance
     
     # 日志配置
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')

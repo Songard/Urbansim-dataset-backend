@@ -7,13 +7,19 @@ from pathlib import Path
 from typing import Optional, Callable, Dict, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import io
+import socket
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from googleapiclient.errors import HttpError
+import httplib2
+import urllib3
 
 from config import Config
+
+# 禁用urllib3的警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +50,19 @@ class DownloadProgress:
             elapsed = time.time() - self.start_time
             speed = self.downloaded / elapsed if elapsed > 0 else 0
             
+            # 计算预计剩余时间
+            if speed > 0:
+                remaining_bytes = self.total_size - self.downloaded
+                eta_seconds = remaining_bytes / speed
+                if eta_seconds > 3600:
+                    eta_str = f"{eta_seconds/3600:.1f}h"
+                elif eta_seconds > 60:
+                    eta_str = f"{eta_seconds/60:.1f}m"
+                else:
+                    eta_str = f"{eta_seconds:.0f}s"
+            else:
+                eta_str = "∞"
+            
             # 格式化速度显示
             if speed > 1024 * 1024:
                 speed_str = f"{speed / (1024 * 1024):.1f} MB/s"
@@ -56,12 +75,23 @@ class DownloadProgress:
             downloaded_mb = self.downloaded / (1024 * 1024)
             total_mb = self.total_size / (1024 * 1024)
             
-            print(f"\r{self.file_name}: {percentage:.1f}% "
-                  f"({downloaded_mb:.1f}/{total_mb:.1f} MB) - {speed_str}", 
+            # 创建进度条
+            bar_length = 30
+            filled_length = int(bar_length * percentage / 100)
+            bar = '█' * filled_length + '-' * (bar_length - filled_length)
+            
+            print(f"\r{self.file_name}: {percentage:.1f}% |{bar}| "
+                  f"{downloaded_mb:.1f}/{total_mb:.1f} MB @ {speed_str} ETA:{eta_str}", 
                   end="", flush=True)
         
         if self.downloaded >= self.total_size:
-            print()  # 完成后换行
+            elapsed = time.time() - self.start_time
+            avg_speed = self.total_size / elapsed if elapsed > 0 else 0
+            if avg_speed > 1024 * 1024:
+                avg_speed_str = f"{avg_speed / (1024 * 1024):.1f} MB/s"
+            else:
+                avg_speed_str = f"{avg_speed / 1024:.1f} KB/s"
+            print(f" ✓ Complete! Avg: {avg_speed_str}")  # 完成后换行
 
 class FileDownloader:
     """
@@ -95,14 +125,31 @@ class FileDownloader:
         logger.info("FileDownloader initialized")
     
     def _build_service(self):
-        """构建Google Drive服务"""
+        """构建Google Drive服务，带连接优化"""
         try:
             credentials = service_account.Credentials.from_service_account_file(
                 self.credentials_file,
                 scopes=Config.SCOPES
             )
-            service = build('drive', 'v3', credentials=credentials)
-            logger.info("Google Drive service built for downloader")
+            
+            # 对于新版本的Google客户端，我们需要不同的方法
+            # 先尝试使用简化的方法，保持连接优化
+            service = build(
+                'drive', 
+                'v3', 
+                credentials=credentials,
+                cache_discovery=False  # 禁用discovery缓存以提升启动速度
+            )
+            
+            # 设置HTTP客户端的超时和其他优化
+            if hasattr(service, '_http'):
+                service._http.timeout = Config.DOWNLOAD_TIMEOUT
+                
+                # 设置socket选项
+                if hasattr(socket, 'TCP_NODELAY') and hasattr(service._http, 'socket_options'):
+                    service._http.socket_options = [(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)]
+            
+            logger.info(f"Google Drive service built for downloader with {Config.DOWNLOAD_TIMEOUT}s timeout")
             return service
         except Exception as e:
             logger.error(f"Failed to build Google Drive service: {e}")
@@ -210,15 +257,22 @@ class FileDownloader:
                 if start_byte > 0:
                     request.headers['Range'] = f'bytes={start_byte}-'
                 
+                # 使用更大的chunk size来提高下载速度
+                chunk_size = Config.DOWNLOAD_CHUNK_SIZE_MB * 1024 * 1024  # Convert MB to bytes
                 downloader = MediaIoBaseDownload(
                     file_handle, 
                     request,
-                    chunksize=1024 * 1024  # 1MB chunks
+                    chunksize=chunk_size
                 )
+                
+                logger.info(f"Starting download with {Config.DOWNLOAD_CHUNK_SIZE_MB}MB chunks")
                 
                 done = False
                 progress = DownloadProgress(file_name, file_size)
                 progress.downloaded = start_byte
+                
+                retry_count = 0
+                max_retries = Config.DOWNLOAD_RETRIES
                 
                 while not done:
                     try:
@@ -229,9 +283,22 @@ class FileDownloader:
                             
                             if progress_callback:
                                 progress_callback(progress.downloaded, file_size)
+                        
+                        # 重置重试计数器，表示这个chunk成功了
+                        retry_count = 0
                                 
+                    except (HttpError, ConnectionError, TimeoutError) as e:
+                        retry_count += 1
+                        if retry_count <= max_retries:
+                            wait_time = min(2 ** retry_count, 30)  # 指数退避，最大30秒
+                            logger.warning(f"Download chunk error (attempt {retry_count}/{max_retries}): {e}")
+                            logger.info(f"Retrying in {wait_time} seconds...")
+                            time.sleep(wait_time)
+                        else:
+                            logger.error(f"Download failed after {max_retries} retries: {e}")
+                            raise
                     except Exception as e:
-                        logger.error(f"Download chunk error: {e}")
+                        logger.error(f"Unexpected download error: {e}")
                         raise
             
             # 下载完成，重命名临时文件

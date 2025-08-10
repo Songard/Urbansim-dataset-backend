@@ -40,13 +40,6 @@ required_files:
     max_size: 1073741824  # 1GB
     extensions: [".las"]
     
-  - path: "points3D.ply"
-    description: "三维点云文件"
-    file_type: "binary"
-    min_size: 1048576  # 1MB
-    max_size: 2147483648  # 2GB
-    extensions: [".ply"]
-    
   - path: "metadata.yaml"
     description: "元数据配置文件"
     file_type: "text"
@@ -141,7 +134,7 @@ content_validation:
       
   yaml_files:
     - path: "metadata.yaml"
-      required_keys: ["data_type", "timestamp", "location"]
+      required_keys: ["record"]  # location is optional since it can be null
 
 # 验证警告和错误消息
 messages:

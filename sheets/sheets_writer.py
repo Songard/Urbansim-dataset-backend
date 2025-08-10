@@ -18,7 +18,8 @@ class SheetsWriter:
         self.sheet_name = Config.SHEET_NAME
         self.headers = [
             'File ID', 'File Name', 'Upload Time', 'File Size', 'File Type',
-            'Extract Status', 'File Count', 'Process Time', 'Validation Score', 'Error Message', 'Notes'
+            'Extract Status', 'File Count', 'Process Time', 'Validation Score', 
+            'Start Time', 'Duration', 'Location', 'Error Message', 'Notes'
         ]
         self._initialize_service()
         
@@ -40,7 +41,7 @@ class SheetsWriter:
             if not self._verify_and_get_sheet_name():
                 return False
             
-            range_name = f"'{self.sheet_name}'!A1:K1"
+            range_name = f"'{self.sheet_name}'!A1:N1"
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.spreadsheet_id,
                 range=range_name
@@ -108,7 +109,7 @@ class SheetsWriter:
                 logger.info(f"Using first sheet: '{self.sheet_name}'")
                 
                 # Try again with proper sheet name
-                range_name = f"'{self.sheet_name}'!A1:K1"
+                range_name = f"'{self.sheet_name}'!A1:N1"
                 result = self.service.spreadsheets().values().get(
                     spreadsheetId=self.spreadsheet_id,
                     range=range_name
@@ -129,7 +130,7 @@ class SheetsWriter:
             
     def _create_headers(self):
         try:
-            range_name = f"'{self.sheet_name}'!A1:K1"
+            range_name = f"'{self.sheet_name}'!A1:N1"
             body = {
                 'values': [self.headers]
             }
@@ -179,6 +180,73 @@ class SheetsWriter:
             
         except Exception as e:
             logger.warning(f"Failed to format headers: {e}")
+    
+    def _format_duration_cell(self, row_number: int, duration_status: str):
+        """Apply color formatting to Duration cell based on status"""
+        if not duration_status:
+            return
+            
+        try:
+            # Duration is column K (index 10, 0-based)
+            duration_column = 10
+            
+            # Define colors based on status
+            colors = {
+                'optimal': {'red': 0.85, 'green': 0.95, 'blue': 0.85},        # Light green
+                'warning_short': {'red': 1.0, 'green': 0.95, 'blue': 0.8},   # Light yellow
+                'warning_long': {'red': 1.0, 'green': 0.95, 'blue': 0.8},    # Light yellow  
+                'error_too_short': {'red': 1.0, 'green': 0.85, 'blue': 0.85}, # Light red
+                'error_too_long': {'red': 1.0, 'green': 0.85, 'blue': 0.85},  # Light red
+                'parse_error': {'red': 0.9, 'green': 0.9, 'blue': 0.9}        # Light gray
+            }
+            
+            background_color = colors.get(duration_status, colors['parse_error'])
+            
+            # Get sheet ID for formatting
+            spreadsheet = self.service.spreadsheets().get(
+                spreadsheetId=self.spreadsheet_id
+            ).execute()
+            
+            sheet_id = None
+            for sheet in spreadsheet.get('sheets', []):
+                if sheet['properties']['title'] == self.sheet_name:
+                    sheet_id = sheet['properties']['sheetId']
+                    break
+            
+            if sheet_id is None:
+                logger.warning(f"Could not find sheet ID for '{self.sheet_name}'")
+                return
+            
+            requests = [
+                {
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': row_number - 1,  # 0-based
+                            'endRowIndex': row_number,
+                            'startColumnIndex': duration_column,
+                            'endColumnIndex': duration_column + 1
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'backgroundColor': background_color
+                            }
+                        },
+                        'fields': 'userEnteredFormat.backgroundColor'
+                    }
+                }
+            ]
+            
+            body = {'requests': requests}
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body=body
+            ).execute()
+            
+            logger.debug(f"Applied {duration_status} formatting to row {row_number}, column {duration_column}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to format duration cell for row {row_number}: {e}")
             
     def _get_next_empty_row(self) -> int:
         try:
@@ -222,7 +290,35 @@ class SheetsWriter:
                     return False
                     
                 next_row = self._get_next_empty_row()
-                range_name = f"'{self.sheet_name}'!A{next_row}:J{next_row}"
+                range_name = f"'{self.sheet_name}'!A{next_row}:N{next_row}"
+                
+                # Extract metadata information if available
+                validation_result = record.get('validation_result') or {}
+                
+                # Handle ValidationResult object
+                if hasattr(validation_result, 'metadata'):
+                    # ValidationResult object
+                    metadata = validation_result.metadata or {}
+                elif isinstance(validation_result, dict):
+                    # Dictionary format
+                    metadata = validation_result.get('metadata', {})
+                else:
+                    # Invalid type, default to empty
+                    metadata = {}
+                    
+                extracted_metadata = metadata.get('extracted_metadata', {})
+                
+                # Format location as coordinate pair
+                location_str = ""
+                if extracted_metadata.get('location'):
+                    lat = extracted_metadata['location'].get('latitude', '')
+                    lon = extracted_metadata['location'].get('longitude', '')
+                    if lat and lon:
+                        location_str = f"{lat}, {lon}"
+                
+                # Format duration to prevent auto-conversion to time format
+                duration_raw = extracted_metadata.get('duration', '')
+                duration_formatted = f"'{duration_raw}" if duration_raw else ''  # Prefix with ' to force text format
                 
                 formatted_record = [
                     record.get('file_id', ''),
@@ -233,6 +329,10 @@ class SheetsWriter:
                     record.get('extract_status', '不适用'),
                     record.get('file_count', ''),
                     self._format_datetime(record.get('process_time', datetime.now())),
+                    record.get('validation_score', ''),
+                    extracted_metadata.get('start_time', ''),
+                    duration_formatted,  # Use formatted duration
+                    location_str,
                     record.get('error_message', ''),
                     record.get('notes', '')
                 ]
@@ -248,6 +348,11 @@ class SheetsWriter:
                     insertDataOption='INSERT_ROWS',
                     body=body
                 ).execute()
+                
+                # Apply duration status formatting if available
+                duration_status = extracted_metadata.get('duration_status')
+                if duration_status:
+                    self._format_duration_cell(next_row, duration_status)
                 
                 logger.info(f"Successfully wrote record to row {next_row}: {record.get('file_name', 'Unknown')}")
                 return True
@@ -292,6 +397,34 @@ class SheetsWriter:
                     
                     formatted_records = []
                     for record in batch:
+                        # Extract metadata information if available
+                        validation_result = record.get('validation_result') or {}
+                        
+                        # Handle ValidationResult object
+                        if hasattr(validation_result, 'metadata'):
+                            # ValidationResult object
+                            metadata = validation_result.metadata or {}
+                        elif isinstance(validation_result, dict):
+                            # Dictionary format
+                            metadata = validation_result.get('metadata', {})
+                        else:
+                            # Invalid type, default to empty
+                            metadata = {}
+                            
+                        extracted_metadata = metadata.get('extracted_metadata', {})
+                        
+                        # Format location as coordinate pair
+                        location_str = ""
+                        if extracted_metadata.get('location'):
+                            lat = extracted_metadata['location'].get('latitude', '')
+                            lon = extracted_metadata['location'].get('longitude', '')
+                            if lat and lon:
+                                location_str = f"{lat}, {lon}"
+                        
+                        # Format duration to prevent auto-conversion to time format
+                        duration_raw = extracted_metadata.get('duration', '')
+                        duration_formatted = f"'{duration_raw}" if duration_raw else ''
+                        
                         formatted_record = [
                             record.get('file_id', ''),
                             record.get('file_name', ''),
@@ -301,12 +434,16 @@ class SheetsWriter:
                             record.get('extract_status', '不适用'),
                             record.get('file_count', ''),
                             self._format_datetime(record.get('process_time', datetime.now())),
+                            record.get('validation_score', ''),
+                            extracted_metadata.get('start_time', ''),
+                            duration_formatted,  # Use formatted duration
+                            location_str,
                             record.get('error_message', ''),
                             record.get('notes', '')
                         ]
                         formatted_records.append(formatted_record)
                     
-                    range_name = f"'{self.sheet_name}'!A{next_row}:J{next_row + len(batch) - 1}"
+                    range_name = f"'{self.sheet_name}'!A{next_row}:N{next_row + len(batch) - 1}"
                     body = {
                         'values': formatted_records
                     }
@@ -318,6 +455,21 @@ class SheetsWriter:
                         insertDataOption='INSERT_ROWS',
                         body=body
                     ).execute()
+                    
+                    # Apply duration status formatting for batch
+                    for j, record in enumerate(batch):
+                        validation_result = record.get('validation_result') or {}
+                        
+                        # Handle ValidationResult object
+                        if hasattr(validation_result, 'metadata'):
+                            metadata = validation_result.metadata or {}
+                        elif isinstance(validation_result, dict):
+                            metadata = validation_result.get('metadata', {})
+                        else:
+                            metadata = {}
+                            
+                        extracted_metadata = metadata.get('extracted_metadata', {})
+                        self._format_duration_cell(next_row + j, extracted_metadata.get('duration_status'))
                     
                     logger.info(f"Successfully wrote batch of {len(batch)} records starting at row {next_row}")
                     

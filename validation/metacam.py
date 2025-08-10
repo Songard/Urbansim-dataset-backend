@@ -8,8 +8,10 @@ Implements the base validator interface with MetaCam-specific logic.
 import os
 import json
 import yaml
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Any
+from datetime import datetime, timedelta
 
 from .base import BaseValidator, ValidationResult, ValidationLevel
 from utils.logger import get_logger
@@ -88,6 +90,9 @@ class MetaCamValidator(BaseValidator):
         # Validate file contents
         self._validate_file_contents(actual_root, errors, warnings, file_details)
         
+        # Extract and validate metadata
+        metadata_info = self._extract_and_validate_metadata(actual_root, errors, warnings)
+        
         # Calculate score and determine validity
         score = self.calculate_score(errors, warnings, missing_files, missing_directories)
         is_valid = self.determine_validity(validation_level, errors, missing_files, missing_directories)
@@ -109,7 +114,8 @@ class MetaCamValidator(BaseValidator):
             metadata={
                 'actual_root': actual_root,
                 'schema_version': self.schema.get('schema_version', 'unknown'),
-                'total_files_checked': len(file_details)
+                'total_files_checked': len(file_details),
+                'extracted_metadata': metadata_info
             }
         )
         
@@ -383,6 +389,139 @@ class MetaCamValidator(BaseValidator):
         except Exception as e:
             error_msg = f"Error validating YAML file {validation_info['path']}: {e}"
             errors.append(error_msg)
+    
+    def _extract_and_validate_metadata(self, root_path: str, errors: List[str], warnings: List[str]) -> Dict[str, Any]:
+        """Extract and validate metadata.yaml information"""
+        metadata_info = {
+            'start_time': None,
+            'duration': None,
+            'location': None,
+            'parsed_successfully': False,
+            'duration_status': None,
+            'duration_seconds': None
+        }
+        
+        metadata_file = os.path.join(root_path, 'metadata.yaml')
+        
+        if not os.path.exists(metadata_file):
+            errors.append("metadata.yaml file not found")
+            return metadata_info
+        
+        try:
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                metadata = yaml.safe_load(f)
+            
+            metadata_info['parsed_successfully'] = True
+            
+            # Extract record information
+            record_info = metadata.get('record', {})
+            
+            # Extract start_time
+            start_time = record_info.get('start_time')
+            if start_time:
+                metadata_info['start_time'] = str(start_time)
+                logger.info(f"Extracted start_time: {start_time}")
+            else:
+                errors.append("metadata.yaml missing required field: record.start_time")
+            
+            # Extract duration and validate
+            duration_str = record_info.get('duration')
+            if duration_str:
+                metadata_info['duration'] = str(duration_str)
+                duration_seconds = self._parse_duration_to_seconds(duration_str)
+                
+                if duration_seconds is not None:
+                    metadata_info['duration_seconds'] = duration_seconds
+                    duration_minutes = duration_seconds / 60
+                    
+                    # Duration validation logic
+                    if duration_seconds < 180:  # Less than 3 minutes
+                        errors.append(f"Duration too short ({duration_minutes:.1f} min): Less than 3 minutes indicates insufficient data")
+                        metadata_info['duration_status'] = 'error_too_short'
+                    elif duration_seconds > 540:  # More than 9 minutes  
+                        errors.append(f"Duration too long ({duration_minutes:.1f} min): More than 9 minutes may indicate recording issues")
+                        metadata_info['duration_status'] = 'error_too_long'
+                    elif duration_seconds < 300:  # Less than 5 minutes
+                        warnings.append(f"Duration potentially short ({duration_minutes:.1f} min): Less than 5 minutes may be insufficient")
+                        metadata_info['duration_status'] = 'warning_short'
+                    elif duration_seconds > 420:  # More than 7 minutes
+                        warnings.append(f"Duration potentially long ({duration_minutes:.1f} min): More than 7 minutes may be excessive")
+                        metadata_info['duration_status'] = 'warning_long'
+                    else:
+                        metadata_info['duration_status'] = 'optimal'
+                        logger.info(f"Duration is optimal: {duration_minutes:.1f} minutes")
+                else:
+                    errors.append(f"Unable to parse duration format: {duration_str}")
+                    metadata_info['duration_status'] = 'parse_error'
+            else:
+                errors.append("metadata.yaml missing required field: record.duration")
+            
+            # Extract location
+            location_info = record_info.get('location', {})
+            if location_info:
+                lat = location_info.get('lat')
+                lon = location_info.get('lon') 
+                
+                # Check if location data is available (not null/None/empty)
+                if lat and lon and str(lat).lower() != 'null' and str(lon).lower() != 'null':
+                    # Clean up encoding issues with degree symbols
+                    lat_str = str(lat).replace('\xB0', '°').replace('°°', '°')
+                    lon_str = str(lon).replace('\xB0', '°').replace('°°', '°')
+                    
+                    metadata_info['location'] = {
+                        'latitude': lat_str,
+                        'longitude': lon_str
+                    }
+                    logger.info(f"Extracted location: {lat_str}, {lon_str}")
+                else:
+                    # Location is null/None - this is acceptable, just log it as info
+                    logger.info("Location data not available (lat/lon are null)")
+                    metadata_info['location'] = None
+            else:
+                # No location section at all
+                warnings.append("metadata.yaml missing location section (optional)")
+                metadata_info['location'] = None
+                
+        except yaml.YAMLError as e:
+            errors.append(f"Error parsing metadata.yaml: {e}")
+        except Exception as e:
+            errors.append(f"Error reading metadata.yaml: {e}")
+        
+        return metadata_info
+    
+    def _parse_duration_to_seconds(self, duration_str: str) -> Optional[int]:
+        """Parse duration string (HH:MM:SS format) to seconds"""
+        try:
+            # Handle format like "00:06:56"
+            if ':' in duration_str:
+                parts = duration_str.split(':')
+                if len(parts) == 3:
+                    hours = int(parts[0])
+                    minutes = int(parts[1])
+                    seconds = int(parts[2])
+                    return hours * 3600 + minutes * 60 + seconds
+                elif len(parts) == 2:
+                    minutes = int(parts[0])
+                    seconds = int(parts[1])
+                    return minutes * 60 + seconds
+            
+            # Handle other potential formats
+            # Try to extract numbers using regex
+            numbers = re.findall(r'\d+', duration_str)
+            if len(numbers) >= 2:
+                if len(numbers) >= 3:
+                    # Assume H:M:S
+                    hours, minutes, seconds = int(numbers[0]), int(numbers[1]), int(numbers[2])
+                    return hours * 3600 + minutes * 60 + seconds
+                else:
+                    # Assume M:S
+                    minutes, seconds = int(numbers[0]), int(numbers[1])
+                    return minutes * 60 + seconds
+                    
+        except (ValueError, IndexError) as e:
+            logger.warning(f"Could not parse duration '{duration_str}': {e}")
+        
+        return None
     
     def _create_failed_result(self, validation_level: ValidationLevel, errors: List[str]) -> ValidationResult:
         """Create a failed validation result"""

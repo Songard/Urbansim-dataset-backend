@@ -3,7 +3,9 @@
     "allow": [
       "Bash(mkdir:*)",
       "Bash(tree:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(del:*)",
+      "Bash(rm:*)"
     ],
     "deny": []
   }

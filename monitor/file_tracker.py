@@ -531,3 +531,53 @@ class FileTracker:
         except Exception as e:
             logger.error(f"Error getting last check time: {e}")
             return None
+    
+    def clear_all_records(self, create_backup: bool = True) -> bool:
+        """
+        清空所有处理记录 - 测试阶段使用
+        
+        Args:
+            create_backup (bool): 是否创建备份文件
+            
+        Returns:
+            bool: 清空是否成功
+        """
+        try:
+            # 创建备份
+            backup_path = None
+            if create_backup:
+                backup_path = f"{self.json_file_path}.backup.{int(datetime.now().timestamp())}"
+                try:
+                    import shutil
+                    shutil.copy2(self.json_file_path, backup_path)
+                    logger.info(f"Created backup: {backup_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to create backup: {e}")
+            
+            # 重置到初始状态
+            initial_data = {
+                "processed_files": [],
+                "last_check_time": None,
+                "total_processed": 0,
+                "created_time": datetime.now().isoformat(),
+                "version": "1.0",
+                "cleared_time": datetime.now().isoformat(),
+                "backup_path": backup_path
+            }
+            
+            self._write_data(initial_data)
+            logger.info("All processed records cleared successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error clearing all records: {e}")
+            return False
+    
+    def reset_to_initial_state(self) -> bool:
+        """
+        重置到完全初始状态 - 测试专用
+        
+        Returns:
+            bool: 重置是否成功
+        """
+        return self.clear_all_records(create_backup=True)
