@@ -19,7 +19,8 @@ class SheetsWriter:
         self.headers = [
             'File ID', 'File Name', 'Upload Time', 'File Size', 'File Type',
             'Extract Status', 'File Count', 'Process Time', 'Validation Score', 
-            'Start Time', 'Duration', 'Location', 'Error Message', 'Notes'
+            'Start Time', 'Duration', 'Location', 'Scene Type', 'Size Status', 
+            'PCD Scale', 'Error Message', 'Notes'
         ]
         self._initialize_service()
         
@@ -41,7 +42,7 @@ class SheetsWriter:
             if not self._verify_and_get_sheet_name():
                 return False
             
-            range_name = f"'{self.sheet_name}'!A1:N1"
+            range_name = f"'{self.sheet_name}'!A1:Q1"
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.spreadsheet_id,
                 range=range_name
@@ -109,7 +110,7 @@ class SheetsWriter:
                 logger.info(f"Using first sheet: '{self.sheet_name}'")
                 
                 # Try again with proper sheet name
-                range_name = f"'{self.sheet_name}'!A1:N1"
+                range_name = f"'{self.sheet_name}'!A1:Q1"
                 result = self.service.spreadsheets().values().get(
                     spreadsheetId=self.spreadsheet_id,
                     range=range_name
@@ -130,7 +131,7 @@ class SheetsWriter:
             
     def _create_headers(self):
         try:
-            range_name = f"'{self.sheet_name}'!A1:N1"
+            range_name = f"'{self.sheet_name}'!A1:Q1"
             body = {
                 'values': [self.headers]
             }
@@ -247,6 +248,143 @@ class SheetsWriter:
             
         except Exception as e:
             logger.warning(f"Failed to format duration cell for row {row_number}: {e}")
+    
+    def _format_size_status_cell(self, row_number: int, size_status: str):
+        """Apply color formatting to Size Status cell based on status"""
+        if not size_status:
+            return
+            
+        try:
+            # Size Status is column N (index 13, 0-based)
+            size_status_column = 13
+            
+            # Define colors based on size status
+            colors = {
+                'optimal': {'red': 0.85, 'green': 0.95, 'blue': 0.85},        # Light green
+                'warning_small': {'red': 1.0, 'green': 0.95, 'blue': 0.8},   # Light yellow
+                'warning_large': {'red': 1.0, 'green': 0.95, 'blue': 0.8},   # Light yellow  
+                'error_too_small': {'red': 1.0, 'green': 0.85, 'blue': 0.85}, # Light red
+                'error_too_large': {'red': 1.0, 'green': 0.85, 'blue': 0.85}, # Light red
+                'unknown': {'red': 0.9, 'green': 0.9, 'blue': 0.9}           # Light gray
+            }
+            
+            background_color = colors.get(size_status, colors['unknown'])
+            
+            # Get sheet ID for formatting
+            spreadsheet = self.service.spreadsheets().get(
+                spreadsheetId=self.spreadsheet_id
+            ).execute()
+            
+            sheet_id = None
+            for sheet in spreadsheet.get('sheets', []):
+                if sheet['properties']['title'] == self.sheet_name:
+                    sheet_id = sheet['properties']['sheetId']
+                    break
+            
+            if sheet_id is None:
+                logger.warning(f"Could not find sheet ID for '{self.sheet_name}'")
+                return
+            
+            requests = [
+                {
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': row_number - 1,  # 0-based
+                            'endRowIndex': row_number,
+                            'startColumnIndex': size_status_column,
+                            'endColumnIndex': size_status_column + 1
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'backgroundColor': background_color
+                            }
+                        },
+                        'fields': 'userEnteredFormat.backgroundColor'
+                    }
+                }
+            ]
+            
+            body = {'requests': requests}
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body=body
+            ).execute()
+            
+            logger.debug(f"Applied {size_status} formatting to row {row_number}, column {size_status_column}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to format size status cell for row {row_number}: {e}")
+    
+    def _format_pcd_scale_cell(self, row_number: int, pcd_status: str):
+        """Apply color formatting to PCD Scale cell based on status"""
+        if not pcd_status:
+            return
+            
+        try:
+            # PCD Scale is column O (index 14, 0-based)
+            pcd_scale_column = 14
+            
+            # Define colors based on PCD scale status
+            colors = {
+                'optimal': {'red': 0.85, 'green': 0.95, 'blue': 0.85},        # Light green
+                'warning_small': {'red': 1.0, 'green': 0.95, 'blue': 0.8},   # Light yellow
+                'warning_large': {'red': 1.0, 'green': 0.95, 'blue': 0.8},   # Light yellow
+                'warning_narrow': {'red': 1.0, 'green': 0.95, 'blue': 0.8},  # Light yellow
+                'error_too_small': {'red': 1.0, 'green': 0.85, 'blue': 0.85}, # Light red
+                'error_too_large': {'red': 1.0, 'green': 0.85, 'blue': 0.85}, # Light red
+                'not_found': {'red': 0.9, 'green': 0.9, 'blue': 0.9},        # Light gray
+                'error': {'red': 0.9, 'green': 0.9, 'blue': 0.9},            # Light gray
+                'unknown': {'red': 0.9, 'green': 0.9, 'blue': 0.9}           # Light gray
+            }
+            
+            background_color = colors.get(pcd_status, colors['unknown'])
+            
+            # Get sheet ID for formatting
+            spreadsheet = self.service.spreadsheets().get(
+                spreadsheetId=self.spreadsheet_id
+            ).execute()
+            
+            sheet_id = None
+            for sheet in spreadsheet.get('sheets', []):
+                if sheet['properties']['title'] == self.sheet_name:
+                    sheet_id = sheet['properties']['sheetId']
+                    break
+            
+            if sheet_id is None:
+                logger.warning(f"Could not find sheet ID for '{self.sheet_name}'")
+                return
+            
+            requests = [
+                {
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': row_number - 1,  # 0-based
+                            'endRowIndex': row_number,
+                            'startColumnIndex': pcd_scale_column,
+                            'endColumnIndex': pcd_scale_column + 1
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'backgroundColor': background_color
+                            }
+                        },
+                        'fields': 'userEnteredFormat.backgroundColor'
+                    }
+                }
+            ]
+            
+            body = {'requests': requests}
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body=body
+            ).execute()
+            
+            logger.debug(f"Applied {pcd_status} formatting to row {row_number}, column {pcd_scale_column}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to format PCD scale cell for row {row_number}: {e}")
             
     def _get_next_empty_row(self) -> int:
         try:
@@ -290,7 +428,7 @@ class SheetsWriter:
                     return False
                     
                 next_row = self._get_next_empty_row()
-                range_name = f"'{self.sheet_name}'!A{next_row}:N{next_row}"
+                range_name = f"'{self.sheet_name}'!A{next_row}:Q{next_row}"
                 
                 # Extract metadata information if available
                 validation_result = record.get('validation_result') or {}
@@ -320,6 +458,11 @@ class SheetsWriter:
                 duration_raw = extracted_metadata.get('duration', '')
                 duration_formatted = f"'{duration_raw}" if duration_raw else ''  # Prefix with ' to force text format
                 
+                # 获取场景类型、大小状态和PCD尺度信息
+                scene_type = record.get('scene_type', '')
+                size_status = record.get('size_status', '')
+                pcd_scale = record.get('pcd_scale', '')
+                
                 formatted_record = [
                     record.get('file_id', ''),
                     record.get('file_name', ''),
@@ -333,6 +476,9 @@ class SheetsWriter:
                     extracted_metadata.get('start_time', ''),
                     duration_formatted,  # Use formatted duration
                     location_str,
+                    scene_type,  # Scene Type column
+                    size_status,  # Size Status column
+                    pcd_scale,   # PCD Scale column
                     record.get('error_message', ''),
                     record.get('notes', '')
                 ]
@@ -353,6 +499,16 @@ class SheetsWriter:
                 duration_status = extracted_metadata.get('duration_status')
                 if duration_status:
                     self._format_duration_cell(next_row, duration_status)
+                
+                # Apply size status formatting if available
+                size_status_level = record.get('size_status_level')
+                if size_status_level:
+                    self._format_size_status_cell(next_row, size_status_level)
+                
+                # Apply PCD scale formatting if available  
+                pcd_scale_status = record.get('pcd_scale_status')
+                if pcd_scale_status:
+                    self._format_pcd_scale_cell(next_row, pcd_scale_status)
                 
                 logger.info(f"Successfully wrote record to row {next_row}: {record.get('file_name', 'Unknown')}")
                 return True
@@ -425,6 +581,11 @@ class SheetsWriter:
                         duration_raw = extracted_metadata.get('duration', '')
                         duration_formatted = f"'{duration_raw}" if duration_raw else ''
                         
+                        # 获取场景类型、大小状态和PCD尺度信息
+                        scene_type = record.get('scene_type', '')
+                        size_status = record.get('size_status', '')
+                        pcd_scale = record.get('pcd_scale', '')
+                        
                         formatted_record = [
                             record.get('file_id', ''),
                             record.get('file_name', ''),
@@ -438,12 +599,15 @@ class SheetsWriter:
                             extracted_metadata.get('start_time', ''),
                             duration_formatted,  # Use formatted duration
                             location_str,
+                            scene_type,  # Scene Type column
+                            size_status,  # Size Status column
+                            pcd_scale,   # PCD Scale column
                             record.get('error_message', ''),
                             record.get('notes', '')
                         ]
                         formatted_records.append(formatted_record)
                     
-                    range_name = f"'{self.sheet_name}'!A{next_row}:N{next_row + len(batch) - 1}"
+                    range_name = f"'{self.sheet_name}'!A{next_row}:Q{next_row + len(batch) - 1}"
                     body = {
                         'values': formatted_records
                     }
@@ -456,7 +620,7 @@ class SheetsWriter:
                         body=body
                     ).execute()
                     
-                    # Apply duration status formatting for batch
+                    # Apply status formatting for batch
                     for j, record in enumerate(batch):
                         validation_result = record.get('validation_result') or {}
                         
@@ -469,7 +633,21 @@ class SheetsWriter:
                             metadata = {}
                             
                         extracted_metadata = metadata.get('extracted_metadata', {})
-                        self._format_duration_cell(next_row + j, extracted_metadata.get('duration_status'))
+                        
+                        # Duration formatting
+                        duration_status = extracted_metadata.get('duration_status')
+                        if duration_status:
+                            self._format_duration_cell(next_row + j, duration_status)
+                        
+                        # Size status formatting
+                        size_status_level = record.get('size_status_level')
+                        if size_status_level:
+                            self._format_size_status_cell(next_row + j, size_status_level)
+                        
+                        # PCD scale formatting
+                        pcd_scale_status = record.get('pcd_scale_status')
+                        if pcd_scale_status:
+                            self._format_pcd_scale_cell(next_row + j, pcd_scale_status)
                     
                     logger.info(f"Successfully wrote batch of {len(batch)} records starting at row {next_row}")
                     

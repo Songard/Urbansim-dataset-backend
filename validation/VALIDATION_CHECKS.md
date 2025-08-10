@@ -53,7 +53,61 @@ The following metadata information is automatically uploaded to Google Sheets:
 - File naming conventions
 - File size validations
 
-### 3. Data Quality Checks
+### 3. PCD Point Cloud Scale Validation
+
+**File**: `Preview.pcd`
+
+**Purpose**: Validates the spatial scale of point cloud data to ensure it's within reasonable ranges for scene reconstruction.
+
+**Detection Strategy**:
+- Searches for `Preview.pcd` file (case-insensitive)
+- First checks root directory, then recursively searches subdirectories
+- Parses up to 100,000 points to avoid memory issues
+
+**Scale Validation Rules**:
+
+#### Optimal Range
+- **Target Scale**: ~100m × 100m (typical urban scene)
+- **Acceptable Range**: 50m - 200m in any dimension
+- **Status**: `optimal` - Green indicator in sheets
+
+#### Warning Conditions
+- **Small Scale**: 10m - 50m
+  - Status: `warning_small` - Yellow indicator
+  - Typical for indoor scenes or small areas
+- **Large Scale**: 200m - 500m  
+  - Status: `warning_large` - Yellow indicator
+  - Typical for large outdoor areas
+- **Narrow Shape**: One dimension < 25m while other is acceptable
+  - Status: `warning_narrow` - Yellow indicator
+  - Indicates elongated scene coverage
+
+#### Error Conditions
+- **Too Small**: < 10m
+  - Status: `error_too_small` - Red indicator
+  - May indicate object-level scanning instead of scene
+- **Too Large**: > 500m
+  - Status: `error_too_large` - Red indicator  
+  - May indicate aerial/satellite data or processing errors
+
+#### Data Upload
+The following PCD scale information is automatically uploaded to Google Sheets:
+- **PCD Scale**: Scale validation status with color coding:
+  - 🟢 **Green**: Optimal range (50m-200m)
+  - 🟡 **Yellow**: Warning range (10m-50m or 200m-500m)
+  - 🔴 **Red**: Error range (<10m or >500m)
+  - ℹ️ **Gray**: File not found or parsing error
+
+**Technical Implementation**:
+- Supports PCD v0.7 format in both ASCII and binary encoding
+- Parses X, Y, Z coordinates to calculate bounding box
+- Binary format uses 32-bit little-endian floats
+- Computes width, height, depth, and coverage area
+- Warning-level validation (doesn't block processing)
+- Detailed logging for troubleshooting
+- Note: Binary compressed format is not yet supported
+
+### 4. Data Quality Checks
 
 **Purpose**: Validates the quality and integrity of data content.
 

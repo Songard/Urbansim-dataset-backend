@@ -1,6 +1,7 @@
 import os
 import sys
 import re
+import struct
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from urllib.parse import urlparse
@@ -513,3 +514,556 @@ def is_safe_path(path: str, base_path: str = None) -> bool:
         
     except Exception:
         return False
+
+def validate_scene_naming(file_name: str) -> Dict[str, Any]:
+    """
+    验证场景文件命名格式并确定场景类型
+    
+    Args:
+        file_name (str): 文件名
+        
+    Returns:
+        Dict[str, Any]: 验证结果
+        {
+            'is_valid_format': bool,  # 命名格式是否正确
+            'scene_type': str,        # 'indoor', 'outdoor', 'unknown'
+            'detected_prefix': str,   # 检测到的前缀
+            'error_message': str      # 错误信息（如果有）
+        }
+    """
+    result = {
+        'is_valid_format': False,
+        'scene_type': 'unknown',
+        'detected_prefix': '',
+        'error_message': ''
+    }
+    
+    try:
+        if not file_name or len(file_name.strip()) == 0:
+            result['error_message'] = '文件名为空'
+            return result
+        
+        # 获取文件名（不包含路径）
+        base_name = Path(file_name).name
+        
+        # 转换为小写进行匹配
+        base_name_lower = base_name.lower()
+        
+        # 检查Indoor格式
+        if base_name_lower.startswith('indoor'):
+            result['is_valid_format'] = True
+            result['scene_type'] = 'indoor'
+            result['detected_prefix'] = 'Indoor'
+        elif base_name_lower.startswith('i') and len(base_name) > 1:
+            # 检查是否是单独的I开头（不是其他单词的一部分）
+            if base_name[1].isdigit() or base_name[1] in ['_', '-', '.', ' ']:
+                result['is_valid_format'] = True
+                result['scene_type'] = 'indoor'
+                result['detected_prefix'] = 'I'
+        
+        # 检查Outdoor格式
+        elif base_name_lower.startswith('outdoor'):
+            result['is_valid_format'] = True
+            result['scene_type'] = 'outdoor'
+            result['detected_prefix'] = 'Outdoor'
+        elif base_name_lower.startswith('o') and len(base_name) > 1:
+            # 检查是否是单独的O开头（不是其他单词的一部分）
+            if base_name[1].isdigit() or base_name[1] in ['_', '-', '.', ' ']:
+                result['is_valid_format'] = True
+                result['scene_type'] = 'outdoor'
+                result['detected_prefix'] = 'O'
+        
+        # 如果没有匹配到任何格式，这是警告而不是错误
+        if not result['is_valid_format']:
+            result['error_message'] = f"场景类型未知: 建议以Indoor/I或Outdoor/O开头以便自动识别"
+        
+        logger.debug(f"场景命名验证: {file_name} -> {result['scene_type']} ({result['detected_prefix']})")
+        return result
+        
+    except Exception as e:
+        result['error_message'] = f"命名格式验证异常: {e}"
+        logger.error(f"场景命名验证失败: {e}")
+        return result
+
+def validate_extracted_file_size(total_size_bytes: int) -> Dict[str, Any]:
+    """
+    验证解压后文件大小合理性
+    
+    Args:
+        total_size_bytes (int): 解压后总文件大小（字节）
+        
+    Returns:
+        Dict[str, Any]: 验证结果
+        {
+            'is_valid_size': bool,     # 大小是否合理
+            'size_status': str,        # 'optimal', 'warning_small', 'warning_large', 'error_too_small', 'error_too_large'
+            'size_mb': float,          # 大小（MB）
+            'size_gb': float,          # 大小（GB）
+            'error_message': str       # 错误信息（如果有）
+        }
+    """
+    result = {
+        'is_valid_size': False,
+        'size_status': 'unknown',
+        'size_mb': 0.0,
+        'size_gb': 0.0,
+        'error_message': ''
+    }
+    
+    try:
+        if total_size_bytes < 0:
+            result['error_message'] = '文件大小不能为负数'
+            return result
+        
+        # 转换为MB和GB
+        size_mb = total_size_bytes / (1024 * 1024)
+        size_gb = total_size_bytes / (1024 * 1024 * 1024)
+        
+        result['size_mb'] = round(size_mb, 2)
+        result['size_gb'] = round(size_gb, 3)
+        
+        # 定义合理范围：1GB ≤ 场景大小 ≤ 3GB
+        MIN_SIZE_GB = 1.0
+        MAX_SIZE_GB = 3.0
+        
+        # 警告阈值
+        WARNING_MIN_GB = 0.8  # 低于0.8GB警告
+        WARNING_MAX_GB = 3.5  # 高于3.5GB警告
+        
+        if size_gb < WARNING_MIN_GB:
+            if size_gb < MIN_SIZE_GB * 0.5:  # 小于0.5GB视为异常
+                result['size_status'] = 'error_too_small'
+                result['error_message'] = f'文件过小: {size_gb:.2f}GB (期望 ≥ {MIN_SIZE_GB}GB)'
+            else:
+                result['size_status'] = 'warning_small'
+                result['error_message'] = f'文件可能偏小: {size_gb:.2f}GB (建议 ≥ {MIN_SIZE_GB}GB)'
+                result['is_valid_size'] = True
+        elif size_gb > WARNING_MAX_GB:
+            if size_gb > MAX_SIZE_GB * 2:  # 大于6GB视为异常
+                result['size_status'] = 'error_too_large'
+                result['error_message'] = f'文件过大: {size_gb:.2f}GB (期望 ≤ {MAX_SIZE_GB}GB)'
+            else:
+                result['size_status'] = 'warning_large'
+                result['error_message'] = f'文件可能偏大: {size_gb:.2f}GB (建议 ≤ {MAX_SIZE_GB}GB)'
+                result['is_valid_size'] = True
+        elif MIN_SIZE_GB <= size_gb <= MAX_SIZE_GB:
+            result['size_status'] = 'optimal'
+            result['is_valid_size'] = True
+        else:
+            result['size_status'] = 'warning_small' if size_gb < MIN_SIZE_GB else 'warning_large'
+            result['is_valid_size'] = True
+            if size_gb < MIN_SIZE_GB:
+                result['error_message'] = f'文件偏小: {size_gb:.2f}GB (建议 ≥ {MIN_SIZE_GB}GB)'
+            else:
+                result['error_message'] = f'文件偏大: {size_gb:.2f}GB (建议 ≤ {MAX_SIZE_GB}GB)'
+        
+        logger.debug(f"文件大小验证: {size_gb:.2f}GB -> {result['size_status']}")
+        return result
+        
+    except Exception as e:
+        result['error_message'] = f"文件大小验证异常: {e}"
+        logger.error(f"文件大小验证失败: {e}")
+        return result
+
+def read_pcd_header(pcd_file_path: str) -> Dict[str, Any]:
+    """
+    读取PCD文件头部信息
+    
+    Args:
+        pcd_file_path (str): PCD文件路径
+        
+    Returns:
+        Dict[str, Any]: PCD文件信息
+        {
+            'version': str,     # PCD版本
+            'width': int,       # 点数
+            'height': int,      # 高度（通常为1）
+            'points': int,      # 总点数
+            'fields': List[str], # 字段列表
+            'viewpoint': str,   # 视点信息
+            'data_type': str    # 数据类型（ascii/binary）
+        }
+    """
+    result = {
+        'version': '',
+        'width': 0,
+        'height': 1,
+        'points': 0,
+        'fields': [],
+        'viewpoint': '',
+        'data_type': 'ascii',
+        'error': None
+    }
+    
+    try:
+        with open(pcd_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                    
+                if line.startswith('VERSION'):
+                    result['version'] = line.split()[1] if len(line.split()) > 1 else '0.7'
+                elif line.startswith('FIELDS'):
+                    result['fields'] = line.split()[1:]
+                elif line.startswith('SIZE'):
+                    # 字段大小信息
+                    pass
+                elif line.startswith('TYPE'):
+                    # 字段类型信息
+                    pass
+                elif line.startswith('COUNT'):
+                    # 字段计数信息
+                    pass
+                elif line.startswith('WIDTH'):
+                    result['width'] = int(line.split()[1])
+                elif line.startswith('HEIGHT'):
+                    result['height'] = int(line.split()[1])
+                elif line.startswith('VIEWPOINT'):
+                    result['viewpoint'] = ' '.join(line.split()[1:])
+                elif line.startswith('POINTS'):
+                    result['points'] = int(line.split()[1])
+                elif line.startswith('DATA'):
+                    result['data_type'] = line.split()[1]
+                    break  # DATA标记后面就是实际数据了
+                    
+        return result
+        
+    except Exception as e:
+        result['error'] = f"读取PCD文件头部失败: {e}"
+        logger.error(f"读取PCD文件头部失败 {pcd_file_path}: {e}")
+        return result
+
+def parse_pcd_points(pcd_file_path: str, max_points: int = 100000) -> Dict[str, Any]:
+    """
+    解析PCD文件的点云数据并计算边界框
+    
+    Args:
+        pcd_file_path (str): PCD文件路径
+        max_points (int): 最大解析点数（避免内存问题）
+        
+    Returns:
+        Dict[str, Any]: 点云边界框信息
+        {
+            'min_x': float, 'max_x': float,
+            'min_y': float, 'max_y': float, 
+            'min_z': float, 'max_z': float,
+            'width': float,  # X方向尺度
+            'height': float, # Y方向尺度
+            'depth': float,  # Z方向尺度
+            'points_parsed': int, # 实际解析的点数
+            'error': str
+        }
+    """
+    result = {
+        'min_x': float('inf'), 'max_x': float('-inf'),
+        'min_y': float('inf'), 'max_y': float('-inf'),
+        'min_z': float('inf'), 'max_z': float('-inf'),
+        'width': 0.0, 'height': 0.0, 'depth': 0.0,
+        'points_parsed': 0,
+        'error': None
+    }
+    
+    try:
+        # 先读取头部信息
+        header = read_pcd_header(pcd_file_path)
+        if header.get('error'):
+            result['error'] = header['error']
+            return result
+        
+        # 检查是否有XYZ字段
+        fields = header.get('fields', [])
+        if 'x' not in [f.lower() for f in fields]:
+            result['error'] = "PCD文件缺少X坐标字段"
+            return result
+        
+        # 找到XYZ字段的索引
+        field_indices = {}
+        for i, field in enumerate(fields):
+            if field.lower() in ['x', 'y', 'z']:
+                field_indices[field.lower()] = i
+        
+        if len(field_indices) < 2:  # 至少需要X,Y字段
+            result['error'] = "PCD文件缺少足够的坐标字段"
+            return result
+        
+        data_type = header.get('data_type', 'ascii').lower()
+        total_points = header.get('points', 0)
+        points_to_parse = min(max_points, total_points)
+        
+        with open(pcd_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            # 跳过头部，找到DATA行
+            data_started = False
+            points_parsed = 0
+            
+            for line in f:
+                line = line.strip()
+                if not data_started:
+                    if line.startswith('DATA'):
+                        data_started = True
+                    continue
+                
+                if points_parsed >= points_to_parse:
+                    break
+                
+                # 解析点数据
+                try:
+                    if data_type == 'ascii':
+                        parts = line.split()
+                        if len(parts) >= len(fields):
+                            x = float(parts[field_indices.get('x', 0)])
+                            y = float(parts[field_indices.get('y', 1)])
+                            z = float(parts[field_indices.get('z', 2)]) if 'z' in field_indices else 0.0
+                            
+                            # 更新边界框
+                            result['min_x'] = min(result['min_x'], x)
+                            result['max_x'] = max(result['max_x'], x)
+                            result['min_y'] = min(result['min_y'], y)
+                            result['max_y'] = max(result['max_y'], y)
+                            result['min_z'] = min(result['min_z'], z)
+                            result['max_z'] = max(result['max_z'], z)
+                            
+                            points_parsed += 1
+                    else:
+                        # 处理二进制格式
+                        logger.info(f"检测到二进制PCD格式，切换到二进制解析: {pcd_file_path}")
+                        return _parse_binary_pcd_points(pcd_file_path, header, max_points)
+                        
+                except (ValueError, IndexError) as e:
+                    # 跳过无法解析的行
+                    continue
+            
+            result['points_parsed'] = points_parsed
+            
+            # 计算尺度
+            if result['min_x'] != float('inf'):  # 有有效点
+                result['width'] = result['max_x'] - result['min_x']
+                result['height'] = result['max_y'] - result['min_y']
+                result['depth'] = result['max_z'] - result['min_z']
+            else:
+                result['error'] = "未找到有效的点云数据"
+                
+        return result
+        
+    except Exception as e:
+        result['error'] = f"解析PCD文件失败: {e}"
+        logger.error(f"解析PCD文件失败 {pcd_file_path}: {e}")
+        return result
+
+def _parse_binary_pcd_points(pcd_file_path: str, header: Dict[str, Any], max_points: int = 100000) -> Dict[str, Any]:
+    """
+    解析二进制PCD文件的点云数据
+    
+    Args:
+        pcd_file_path (str): PCD文件路径
+        header (Dict[str, Any]): PCD文件头部信息
+        max_points (int): 最大解析点数
+        
+    Returns:
+        Dict[str, Any]: 点云边界框信息
+    """
+    result = {
+        'min_x': float('inf'), 'max_x': float('-inf'),
+        'min_y': float('inf'), 'max_y': float('-inf'),
+        'min_z': float('inf'), 'max_z': float('-inf'),
+        'width': 0.0, 'height': 0.0, 'depth': 0.0,
+        'points_parsed': 0,
+        'error': None
+    }
+    
+    try:
+        fields = header.get('fields', [])
+        data_type = header.get('data_type', 'binary').lower()
+        total_points = header.get('points', 0)
+        points_to_parse = min(max_points, total_points)
+        
+        # 检查是否有XYZ字段
+        if 'x' not in [f.lower() for f in fields]:
+            result['error'] = "PCD文件缺少X坐标字段"
+            return result
+        
+        # 找到XYZ字段的索引
+        field_indices = {}
+        for i, field in enumerate(fields):
+            if field.lower() in ['x', 'y', 'z']:
+                field_indices[field.lower()] = i
+        
+        if len(field_indices) < 2:
+            result['error'] = "PCD文件缺少足够的坐标字段"
+            return result
+        
+        # 计算每个点的字节大小（假设每个字段4字节float）
+        field_count = len(fields)
+        point_size = field_count * 4  # 4 bytes per float
+        
+        with open(pcd_file_path, 'rb') as f:
+            # 跳过头部，找到DATA行的位置
+            content = f.read()
+            data_marker = b'DATA binary\n'
+            if data_marker not in content:
+                data_marker = b'DATA binary_compressed\n'
+                if data_marker not in content:
+                    result['error'] = "未找到二进制数据标记"
+                    return result
+                else:
+                    result['error'] = "暂不支持压缩的二进制PCD格式"
+                    return result
+            
+            data_start_pos = content.find(data_marker) + len(data_marker)
+            f.seek(data_start_pos)
+            
+            points_parsed = 0
+            x_idx = field_indices.get('x', 0)
+            y_idx = field_indices.get('y', 1) 
+            z_idx = field_indices.get('z', 2)
+            
+            while points_parsed < points_to_parse:
+                try:
+                    # 读取一个点的数据
+                    point_data = f.read(point_size)
+                    if len(point_data) < point_size:
+                        break  # 文件结束
+                    
+                    # 解析浮点数（小端序）
+                    values = struct.unpack(f'<{field_count}f', point_data)
+                    
+                    x = values[x_idx] if x_idx < len(values) else 0.0
+                    y = values[y_idx] if y_idx < len(values) else 0.0
+                    z = values[z_idx] if z_idx < len(values) and 'z' in field_indices else 0.0
+                    
+                    # 更新边界框
+                    result['min_x'] = min(result['min_x'], x)
+                    result['max_x'] = max(result['max_x'], x)
+                    result['min_y'] = min(result['min_y'], y)
+                    result['max_y'] = max(result['max_y'], y)
+                    result['min_z'] = min(result['min_z'], z)
+                    result['max_z'] = max(result['max_z'], z)
+                    
+                    points_parsed += 1
+                    
+                except struct.error as e:
+                    logger.warning(f"跳过无法解析的二进制点数据: {e}")
+                    continue
+                except Exception as e:
+                    logger.warning(f"二进制点解析错误: {e}")
+                    break
+            
+            result['points_parsed'] = points_parsed
+            
+            # 计算尺度
+            if result['min_x'] != float('inf'):
+                result['width'] = result['max_x'] - result['min_x']
+                result['height'] = result['max_y'] - result['min_y'] 
+                result['depth'] = result['max_z'] - result['min_z']
+            else:
+                result['error'] = "未找到有效的二进制点云数据"
+                
+        logger.info(f"二进制PCD解析完成: {points_parsed} 点, 尺度 {result['width']:.1f}×{result['height']:.1f}×{result['depth']:.1f}")
+        return result
+        
+    except Exception as e:
+        result['error'] = f"二进制PCD解析失败: {e}"
+        logger.error(f"二进制PCD解析失败 {pcd_file_path}: {e}")
+        return result
+
+def validate_pcd_scale(pcd_file_path: str) -> Dict[str, Any]:
+    """
+    验证PCD点云的尺度是否合理
+    
+    Args:
+        pcd_file_path (str): PCD文件路径
+        
+    Returns:
+        Dict[str, Any]: 验证结果
+        {
+            'is_valid_scale': bool,    # 尺度是否合理
+            'scale_status': str,       # 'optimal', 'warning_small', 'warning_large', 'error_too_small', 'error_too_large'
+            'width_m': float,          # X方向尺度（米）
+            'height_m': float,         # Y方向尺度（米）
+            'depth_m': float,          # Z方向尺度（米）
+            'area_sqm': float,         # 覆盖面积（平方米）
+            'points_parsed': int,      # 解析的点数
+            'error_message': str       # 错误信息（如果有）
+        }
+    """
+    result = {
+        'is_valid_scale': False,
+        'scale_status': 'unknown',
+        'width_m': 0.0,
+        'height_m': 0.0,
+        'depth_m': 0.0,
+        'area_sqm': 0.0,
+        'points_parsed': 0,
+        'error_message': ''
+    }
+    
+    try:
+        if not os.path.exists(pcd_file_path):
+            result['error_message'] = f"PCD文件不存在: {pcd_file_path}"
+            return result
+        
+        # 解析点云数据
+        point_data = parse_pcd_points(pcd_file_path)
+        if point_data.get('error'):
+            result['error_message'] = point_data['error']
+            return result
+        
+        if point_data['points_parsed'] == 0:
+            result['error_message'] = "PCD文件中没有有效的点云数据"
+            return result
+        
+        # 提取尺度信息（假设单位是米）
+        width_m = abs(point_data['width'])
+        height_m = abs(point_data['height'])
+        depth_m = abs(point_data['depth'])
+        area_sqm = width_m * height_m
+        
+        result['width_m'] = round(width_m, 2)
+        result['height_m'] = round(height_m, 2)
+        result['depth_m'] = round(depth_m, 2)
+        result['area_sqm'] = round(area_sqm, 2)
+        result['points_parsed'] = point_data['points_parsed']
+        
+        # 定义合理范围：长宽在100m左右比较合适
+        OPTIMAL_SIZE = 100.0  # 100米
+        WARNING_MIN = 50.0    # 50米以下警告
+        WARNING_MAX = 200.0   # 200米以上警告
+        ERROR_MIN = 10.0      # 10米以下异常
+        ERROR_MAX = 500.0     # 500米以上异常
+        
+        # 使用长宽中的最大值作为主要判断标准
+        max_dimension = max(width_m, height_m)
+        min_dimension = min(width_m, height_m)
+        
+        if max_dimension < ERROR_MIN:
+            result['scale_status'] = 'error_too_small'
+            result['error_message'] = f'点云尺度过小: {max_dimension:.1f}m (期望约{OPTIMAL_SIZE}m)'
+        elif max_dimension > ERROR_MAX:
+            result['scale_status'] = 'error_too_large'
+            result['error_message'] = f'点云尺度过大: {max_dimension:.1f}m (期望约{OPTIMAL_SIZE}m)'
+        elif max_dimension < WARNING_MIN:
+            result['scale_status'] = 'warning_small'
+            result['error_message'] = f'点云尺度偏小: {max_dimension:.1f}m (建议约{OPTIMAL_SIZE}m)'
+            result['is_valid_scale'] = True
+        elif max_dimension > WARNING_MAX:
+            result['scale_status'] = 'warning_large'
+            result['error_message'] = f'点云尺度偏大: {max_dimension:.1f}m (建议约{OPTIMAL_SIZE}m)'
+            result['is_valid_scale'] = True
+        else:
+            result['scale_status'] = 'optimal'
+            result['is_valid_scale'] = True
+        
+        # 额外检查：如果一个维度合理但另一个维度异常，也给出警告
+        if result['scale_status'] == 'optimal':
+            if min_dimension < WARNING_MIN / 2:  # 如果较小维度过小
+                result['scale_status'] = 'warning_narrow'
+                result['error_message'] = f'点云过于狭长: {width_m:.1f}m × {height_m:.1f}m'
+                result['is_valid_scale'] = True
+        
+        logger.debug(f"PCD尺度验证: {pcd_file_path} -> {width_m:.1f}m × {height_m:.1f}m ({result['scale_status']})")
+        return result
+        
+    except Exception as e:
+        result['error_message'] = f"PCD尺度验证异常: {e}"
+        logger.error(f"PCD尺度验证失败: {e}")
+        return result

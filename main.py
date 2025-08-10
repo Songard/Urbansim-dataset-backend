@@ -277,7 +277,34 @@ class GoogleDriveMonitorSystem:
                 error_message = str(e)
                 logger.warning(f"压缩文件处理出错: {e}")
             
-            # 3. 写入Google Sheets
+            # 3. 提取场景类型、大小状态和PCD尺度信息
+            scene_type = ''
+            size_status = ''
+            pcd_scale = ''
+            
+            # 从archive validation结果中提取这些信息
+            if 'validation_result' in locals() and validation_result:
+                scene_validation = validation_result.get('scene_validation', {})
+                size_validation = validation_result.get('size_validation', {})
+                pcd_validation = validation_result.get('pcd_validation', {})
+                
+                scene_type = scene_validation.get('scene_type', 'unknown')
+                size_status = size_validation.get('size_status', 'unknown')
+                
+                # PCD Scale显示尺度数值而不是状态
+                if pcd_validation and pcd_validation.get('scale_status') != 'not_found':
+                    width_m = pcd_validation.get('width_m', 0)
+                    height_m = pcd_validation.get('height_m', 0)
+                    depth_m = pcd_validation.get('depth_m', 0)
+                    pcd_scale = f"{width_m:.1f}×{height_m:.1f}×{depth_m:.1f}m"
+                elif pcd_validation and pcd_validation.get('scale_status') == 'not_found':
+                    pcd_scale = '未找到PCD'
+                else:
+                    pcd_scale = '解析失败'
+                
+                logger.debug(f"验证结果提取: scene_type={scene_type}, size_status={size_status}, pcd_scale={pcd_scale}")
+
+            # 4. 写入Google Sheets
             sheets_record = {
                 'file_id': file_id,
                 'file_name': file_name,
@@ -289,6 +316,12 @@ class GoogleDriveMonitorSystem:
                 'process_time': process_start_time,
                 'validation_score': validation_score,
                 'validation_result': data_validation_result,  # 添加validation结果
+                'scene_type': scene_type,     # 添加场景类型
+                'size_status': size_status,   # 添加大小状态
+                'pcd_scale': pcd_scale,      # 添加PCD尺度（显示尺寸）
+                # 添加状态信息用于颜色格式化
+                'size_status_level': size_validation.get('size_status', 'unknown') if 'validation_result' in locals() and validation_result else 'unknown',
+                'pcd_scale_status': pcd_validation.get('scale_status', 'unknown') if 'validation_result' in locals() and validation_result and pcd_validation else 'unknown',
                 'error_message': error_message,
                 'notes': f"Download path: {download_path}"
             }
@@ -364,6 +397,9 @@ class GoogleDriveMonitorSystem:
                 'file_count': '',
                 'process_time': start_time,
                 'validation_score': 'N/A (Failed)',
+                'scene_type': 'unknown',      # 失败时设为unknown
+                'size_status': 'unknown',     # 失败时设为unknown
+                'pcd_scale': 'unknown',       # 失败时设为unknown
                 'error_message': error_msg,
                 'notes': 'Processing failed'
             }
