@@ -4,6 +4,11 @@ Base Validation Framework
 Defines the core interfaces and base classes for the validation system.
 This provides a foundation for implementing different validation strategies
 and scoring algorithms.
+
+数据契约说明：
+- 所有validator必须返回符合STANDARD_METADATA_FORMAT的ValidationResult
+- metadata必须包含{validator_name}_validation字段
+- decision字段必须使用ValidationDecisionContract中定义的值
 """
 
 from abc import ABC, abstractmethod
@@ -20,7 +25,58 @@ class ValidationLevel(Enum):
 
 @dataclass
 class ValidationResult:
-    """Standardized validation result structure"""
+    """
+    Standardized validation result structure
+    
+    数据契约要求：
+    ===== METADATA结构契约 =====
+    metadata必须遵循STANDARD_METADATA_FORMAT，包含：
+    
+    1. 基础管理信息（由ValidationManager添加）：
+       - manager_version: str
+       - selected_validator: str  
+       - auto_selected: bool
+       
+    2. 提取的元数据（从数据包解析）：
+       - extracted_metadata: Dict (包含start_time, duration, location等)
+       
+    3. VALIDATOR结果（每个validator必须添加）：
+       - {validator_name}_validation: ValidatorDataContract
+       
+    4. 流水线结果（多validator组合时）：
+       - validation_pipeline: Dict (组合验证的结果和权重)
+       
+    VALIDATOR结果格式契约：
+    {validator_name}_validation = {
+        "decision": str,              # 必须来自ValidationDecisionContract (PASS/FAIL/NEED_REVIEW/ERROR/SKIP)
+        "confidence": float,          # 可选：0.0-1.0
+        "timestamp": str,             # ISO格式时间戳
+        "metrics": {                  # 可选：详细指标
+            "score": float,           # 得分
+            "任何自定义指标": Any       # validator特定的指标
+        },
+        "problems_found": List[str],  # 发现的问题
+        "processing_time_ms": float,  # 可选：处理时间
+        "details": Dict              # 可选：validator特定的详细信息
+    }
+    
+    示例：
+    metadata = {
+        "manager_version": "1.0",
+        "selected_validator": "TransientValidator",
+        "extracted_metadata": {
+            "start_time": "2025-08-10 07:40:52",
+            "location": {"latitude": "40.692°N", "longitude": "73.989°W"}
+        },
+        "transient_validation": {
+            "transient_detection": {
+                "decision": "PASS",
+                "metrics": {"WDD": 0.14, "WPO": 0.0, "SAI": 5.6},
+                "problems_found": []
+            }
+        }
+    }
+    """
     is_valid: bool
     validation_level: ValidationLevel
     score: float  # 0-100 score
@@ -32,7 +88,7 @@ class ValidationResult:
     file_details: Dict[str, Dict[str, Any]]
     summary: str
     validator_type: str = "unknown"
-    metadata: Dict[str, Any] = None
+    metadata: Dict[str, Any] = None  # 必须符合STANDARD_METADATA_FORMAT契约
     
     def __post_init__(self):
         if self.metadata is None:

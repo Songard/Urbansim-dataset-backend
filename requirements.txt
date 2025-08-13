@@ -9,3 +9,7 @@ py7zr
 patool
 colorama
 pyyaml
+ultralytics
+opencv-python
+numpy
+psutil

@@ -16,13 +16,53 @@ class SheetsWriter:
         self.service = None
         self.spreadsheet_id = Config.SPREADSHEET_ID
         self.sheet_name = Config.SHEET_NAME
+        # 使用标准化的headers定义
         self.headers = [
             'File ID', 'File Name', 'Upload Time', 'File Size', 'File Type',
             'Extract Status', 'File Count', 'Process Time', 'Validation Score', 
             'Start Time', 'Duration', 'Location', 'Scene Type', 'Size Status', 
-            'PCD Scale', 'Error Message', 'Notes'
+            'PCD Scale', 'Transient Detection', 'Weighted Detection Density', 'Weighted Person Occupancy', 'Scene Activity Index', 'Error Message', 'Notes'
         ]
+        
+        # 定义字段到headers的映射 - 这样添加新字段时更清晰
+        self.field_mapping = {
+            'file_id': 0, 'file_name': 1, 'upload_time': 2, 'file_size': 3, 'file_type': 4,
+            'extract_status': 5, 'file_count': 6, 'process_time': 7, 'validation_score': 8,
+            'start_time': 9, 'duration': 10, 'location': 11, 'scene_type': 12, 'size_status': 13,
+            'pcd_scale': 14, 'transient_decision': 15, 'wdd': 16, 'wpo': 17, 'sai': 18,
+            'error_message': 19, 'notes': 20
+        }
         self._initialize_service()
+    
+    def prepare_record_row(self, record: Dict[str, Any]) -> List[Any]:
+        """
+        将record转换为sheets行数据 - 统一的数据准备方法
+        
+        这个方法简化了数据准备流程，减少重复代码和出错机会
+        """
+        from .data_mapper import SheetsDataMapper
+        
+        # 使用统一的数据映射器
+        normalized_record = SheetsDataMapper.map_validation_result(
+            record.get('validation_result'), 
+            record
+        )
+        
+        # 格式化时间字段
+        process_time = self._format_datetime(normalized_record.get('process_time'))
+        
+        # 按照字段映射的顺序构建行数据
+        row_data = [''] * len(self.headers)  # 初始化空行
+        
+        for field, index in self.field_mapping.items():
+            value = normalized_record.get(field, '')
+            if field == 'process_time':
+                value = process_time
+            elif field == 'file_size' and value:
+                value = f"{int(value) / (1024*1024):.2f} MB"
+            row_data[index] = str(value) if value is not None else ''
+        
+        return row_data
         
     def _initialize_service(self):
         try:
@@ -42,7 +82,7 @@ class SheetsWriter:
             if not self._verify_and_get_sheet_name():
                 return False
             
-            range_name = f"'{self.sheet_name}'!A1:Q1"
+            range_name = f"'{self.sheet_name}'!A1:U1"
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.spreadsheet_id,
                 range=range_name
@@ -110,7 +150,7 @@ class SheetsWriter:
                 logger.info(f"Using first sheet: '{self.sheet_name}'")
                 
                 # Try again with proper sheet name
-                range_name = f"'{self.sheet_name}'!A1:Q1"
+                range_name = f"'{self.sheet_name}'!A1:U1"
                 result = self.service.spreadsheets().values().get(
                     spreadsheetId=self.spreadsheet_id,
                     range=range_name
@@ -131,7 +171,7 @@ class SheetsWriter:
             
     def _create_headers(self):
         try:
-            range_name = f"'{self.sheet_name}'!A1:Q1"
+            range_name = f"'{self.sheet_name}'!A1:U1"
             body = {
                 'values': [self.headers]
             }
@@ -385,6 +425,71 @@ class SheetsWriter:
             
         except Exception as e:
             logger.warning(f"Failed to format PCD scale cell for row {row_number}: {e}")
+    
+    def _format_transient_detection_cell(self, row_number: int, transient_decision: str):
+        """Apply color formatting to Transient Detection cell based on decision"""
+        if not transient_decision:
+            return
+            
+        try:
+            # Transient Detection is column P (index 15, 0-based)
+            transient_column = 15
+            
+            # Define colors based on detection decision
+            colors = {
+                'PASS': {'red': 0.85, 'green': 0.95, 'blue': 0.85},          # Light green
+                'NEED_REVIEW': {'red': 1.0, 'green': 0.95, 'blue': 0.8},    # Light yellow
+                'REJECT': {'red': 1.0, 'green': 0.85, 'blue': 0.85},        # Light red
+                'ERROR': {'red': 0.9, 'green': 0.9, 'blue': 0.9}           # Light gray
+            }
+            
+            background_color = colors.get(transient_decision, colors['ERROR'])
+            
+            # Get sheet ID for formatting
+            spreadsheet = self.service.spreadsheets().get(
+                spreadsheetId=self.spreadsheet_id
+            ).execute()
+            
+            sheet_id = None
+            for sheet in spreadsheet.get('sheets', []):
+                if sheet['properties']['title'] == self.sheet_name:
+                    sheet_id = sheet['properties']['sheetId']
+                    break
+            
+            if sheet_id is None:
+                logger.warning(f"Could not find sheet ID for '{self.sheet_name}'")
+                return
+            
+            requests = [
+                {
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': row_number - 1,  # 0-based
+                            'endRowIndex': row_number,
+                            'startColumnIndex': transient_column,
+                            'endColumnIndex': transient_column + 1
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'backgroundColor': background_color
+                            }
+                        },
+                        'fields': 'userEnteredFormat.backgroundColor'
+                    }
+                }
+            ]
+            
+            body = {'requests': requests}
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body=body
+            ).execute()
+            
+            logger.debug(f"Applied {transient_decision} formatting to row {row_number}, column {transient_column}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to format transient detection cell for row {row_number}: {e}")
             
     def _get_next_empty_row(self) -> int:
         try:
@@ -419,6 +524,60 @@ class SheetsWriter:
         else:
             return str(dt)
             
+    def append_record_v2(self, record: Dict[str, Any]) -> bool:
+        """
+        新版本的append_record - 使用统一的数据映射器
+        推荐使用这个方法来避免数据传递错误
+        """
+        max_retries = Config.MAX_RETRY_ATTEMPTS
+        
+        for attempt in range(max_retries):
+            try:
+                if not self._get_or_create_headers():
+                    return False
+                    
+                next_row = self._get_next_empty_row()
+                range_name = f"'{self.sheet_name}'!A{next_row}:U{next_row}"
+                
+                # 使用统一的数据准备方法
+                formatted_record = self.prepare_record_row(record)
+                
+                body = {
+                    'values': [formatted_record]
+                }
+                
+                result = self.service.spreadsheets().values().append(
+                    spreadsheetId=self.spreadsheet_id,
+                    range=range_name,
+                    valueInputOption='USER_ENTERED',
+                    insertDataOption='INSERT_ROWS',
+                    body=body
+                ).execute()
+                
+                logger.info(f"Successfully wrote record to row {next_row}: {record.get('file_name', 'Unknown')}")
+                return True
+                
+            except HttpError as e:
+                if e.resp.status in [429, 503]:  # Rate limit or service unavailable
+                    wait_time = Config.RETRY_DELAY * (attempt + 1)
+                    logger.warning(f"Rate limit/service error, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries}): {e}")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"Failed to append record after {max_retries} attempts: {e}")
+                    return False
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    wait_time = Config.RETRY_DELAY * (attempt + 1)
+                    logger.warning(f"Error writing to sheet, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries}): {e}")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"Failed to append record after {max_retries} attempts: {e}")
+                    return False
+                    
+        return False
+
     def append_record(self, record: Dict[str, Any]) -> bool:
         max_retries = Config.MAX_RETRY_ATTEMPTS
         
@@ -428,7 +587,7 @@ class SheetsWriter:
                     return False
                     
                 next_row = self._get_next_empty_row()
-                range_name = f"'{self.sheet_name}'!A{next_row}:Q{next_row}"
+                range_name = f"'{self.sheet_name}'!A{next_row}:U{next_row}"
                 
                 # Extract metadata information if available
                 validation_result = record.get('validation_result') or {}
@@ -463,6 +622,42 @@ class SheetsWriter:
                 size_status = record.get('size_status', '')
                 pcd_scale = record.get('pcd_scale', '')
                 
+                # ===== TRANSIENT检测数据提取契约 =====
+                # 数据来源优先级：
+                # 1. main.py准备的直接字段（推荐）
+                # 2. validation_result.metadata中的原始数据（fallback）
+                #
+                # 数据路径契约：metadata.transient_validation.transient_detection
+                # 必须包含：decision, metrics.WDD, metrics.WPO, metrics.SAI
+                
+                transient_detection = record.get('transient_decision', '')
+                wdd_value = record.get('wdd', '')
+                wpo_value = record.get('wpo', '')
+                sai_value = record.get('sai', '')
+                
+                # Fallback：如果main.py中没有提供这些字段，从validation_result中提取
+                if not transient_detection and not wdd_value and validation_result:
+                    # 获取metadata（支持字典和对象两种格式）
+                    if hasattr(validation_result, 'metadata'):
+                        metadata = validation_result.metadata or {}
+                    elif isinstance(validation_result, dict):
+                        metadata = validation_result.get('metadata', {})
+                    else:
+                        metadata = {}
+                    
+                    # 遵循标准数据路径：metadata.transient_validation.transient_detection
+                    transient_validation = metadata.get('transient_validation', {})
+                    transient_data = transient_validation.get('transient_detection', {})
+                    if transient_data:
+                        # 提取决策（必须来自ValidationDecisionContract）
+                        transient_detection = transient_data.get('decision', '')
+                        
+                        # 提取指标（遵循标准格式化）
+                        transient_metrics = transient_data.get('metrics', {})
+                        wdd_value = f"{transient_metrics.get('WDD', 0):.3f}" if 'WDD' in transient_metrics else ""
+                        wpo_value = f"{transient_metrics.get('WPO', 0):.1f}%" if 'WPO' in transient_metrics else ""
+                        sai_value = f"{transient_metrics.get('SAI', 0):.1f}%" if 'SAI' in transient_metrics else ""
+                
                 formatted_record = [
                     record.get('file_id', ''),
                     record.get('file_name', ''),
@@ -479,6 +674,10 @@ class SheetsWriter:
                     scene_type,  # Scene Type column
                     size_status,  # Size Status column
                     pcd_scale,   # PCD Scale column
+                    transient_detection,  # Transient Detection column
+                    wdd_value,  # WDD column
+                    wpo_value,  # WPO column
+                    sai_value,  # SAI column
                     record.get('error_message', ''),
                     record.get('notes', '')
                 ]
@@ -509,6 +708,10 @@ class SheetsWriter:
                 pcd_scale_status = record.get('pcd_scale_status')
                 if pcd_scale_status:
                     self._format_pcd_scale_cell(next_row, pcd_scale_status)
+                
+                # Apply transient detection formatting if available
+                if transient_detection:
+                    self._format_transient_detection_cell(next_row, transient_detection)
                 
                 logger.info(f"Successfully wrote record to row {next_row}: {record.get('file_name', 'Unknown')}")
                 return True
@@ -586,6 +789,24 @@ class SheetsWriter:
                         size_status = record.get('size_status', '')
                         pcd_scale = record.get('pcd_scale', '')
                         
+                        # 提取移动障碍物检测结果
+                        transient_detection = record.get('transient_decision', '')
+                        wdd_value = record.get('wdd', '')
+                        wpo_value = record.get('wpo', '')
+                        sai_value = record.get('sai', '')
+                        
+                        # 如果main.py中没有提供这些字段，尝试从validation_result中提取
+                        if not transient_detection and not wdd_value:
+                            # 修正数据路径：transient_validation -> transient_detection
+                            transient_validation = metadata.get('transient_validation', {})
+                            transient_data = transient_validation.get('transient_detection', {})
+                            if transient_data:
+                                transient_detection = transient_data.get('decision', '')
+                                transient_metrics = transient_data.get('metrics', {})
+                                wdd_value = f"{transient_metrics.get('WDD', 0):.3f}" if 'WDD' in transient_metrics else ""
+                                wpo_value = f"{transient_metrics.get('WPO', 0):.1f}%" if 'WPO' in transient_metrics else ""
+                                sai_value = f"{transient_metrics.get('SAI', 0):.1f}%" if 'SAI' in transient_metrics else ""
+                        
                         formatted_record = [
                             record.get('file_id', ''),
                             record.get('file_name', ''),
@@ -602,12 +823,16 @@ class SheetsWriter:
                             scene_type,  # Scene Type column
                             size_status,  # Size Status column
                             pcd_scale,   # PCD Scale column
+                            transient_detection,  # Transient Detection column
+                            wdd_value,  # WDD column
+                            wpo_value,  # WPO column
+                            sai_value,  # SAI column
                             record.get('error_message', ''),
                             record.get('notes', '')
                         ]
                         formatted_records.append(formatted_record)
                     
-                    range_name = f"'{self.sheet_name}'!A{next_row}:Q{next_row + len(batch) - 1}"
+                    range_name = f"'{self.sheet_name}'!A{next_row}:U{next_row + len(batch) - 1}"
                     body = {
                         'values': formatted_records
                     }
@@ -648,6 +873,12 @@ class SheetsWriter:
                         pcd_scale_status = record.get('pcd_scale_status')
                         if pcd_scale_status:
                             self._format_pcd_scale_cell(next_row + j, pcd_scale_status)
+                        
+                        # Transient detection formatting
+                        batch_transient_data = metadata.get('transient_detection', {})
+                        batch_transient_decision = batch_transient_data.get('decision', '') if batch_transient_data else ""
+                        if batch_transient_decision:
+                            self._format_transient_detection_cell(next_row + j, batch_transient_decision)
                     
                     logger.info(f"Successfully wrote batch of {len(batch)} records starting at row {next_row}")
                     

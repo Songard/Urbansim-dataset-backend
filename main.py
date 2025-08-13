@@ -192,34 +192,44 @@ class GoogleDriveMonitorSystem:
                 if archive_format:
                     logger.info(f"检测到压缩文件格式: {archive_format}")
                     
-                    # 尝试验证压缩文件（包含数据格式验证）
+                    # 验证压缩文件（包含数据格式验证的完整pipeline validation）
                     archive_validation_result = self.archive_handler.validate_archive(download_path, validate_data_format=True)
                     
-                    # 使用新的validation系统进行额外的数据验证
-                    data_validation_result = None
-                    try:
-                        # 尝试对解压后的数据进行validation
-                        if archive_validation_result['is_valid']:
-                            # 创建临时解压目录进行验证
-                            temp_extract_dir = os.path.join(Config.TEMP_DIR, f"validation_{file_id}")
-                            os.makedirs(temp_extract_dir, exist_ok=True)
+                    # 从archive_validation_result中提取data_validation结果
+                    data_validation_result = archive_validation_result.get('data_validation') if archive_validation_result else None
+                    
+                    # 详细记录验证结果（如果存在）
+                    if data_validation_result:
+                        # 检查data_validation_result是否为ValidationResult对象还是字典
+                        if hasattr(data_validation_result, 'summary'):
+                            logger.info(f"Data validation completed: {data_validation_result.summary}")
                             
-                            # 解压文件进行验证
-                            if self.archive_handler.extract_archive(download_path, temp_extract_dir):
-                                data_validation_result = self.validation_manager.validate(temp_extract_dir)
-                                logger.info(f"Data validation completed: {data_validation_result.summary}")
-                                logger.debug(f"Validation result type: {type(data_validation_result)}")
-                                
-                                # 清理临时目录
-                                import shutil
-                                try:
-                                    shutil.rmtree(temp_extract_dir)
-                                except Exception as cleanup_e:
-                                    logger.warning(f"Failed to cleanup temp directory: {cleanup_e}")
-                    except Exception as e:
-                        logger.warning(f"Data validation failed: {e}")
-                        # validation失败时，设置为None
-                        data_validation_result = None
+                            # 详细记录验证错误和警告
+                            if hasattr(data_validation_result, 'errors') and data_validation_result.errors:
+                                logger.warning(f"Validation ERRORS ({len(data_validation_result.errors)}):")
+                                for i, error in enumerate(data_validation_result.errors, 1):
+                                    logger.warning(f"  [{i}] {error}")
+                            
+                            if hasattr(data_validation_result, 'warnings') and data_validation_result.warnings:
+                                logger.info(f"Validation WARNINGS ({len(data_validation_result.warnings)}):")
+                                for i, warning in enumerate(data_validation_result.warnings, 1):
+                                    logger.info(f"  [{i}] {warning}")
+                            
+                            # 记录缺失文件和目录信息
+                            if hasattr(data_validation_result, 'missing_files') and data_validation_result.missing_files:
+                                logger.warning(f"Missing files: {data_validation_result.missing_files}")
+                            if hasattr(data_validation_result, 'missing_directories') and data_validation_result.missing_directories:
+                                logger.warning(f"Missing directories: {data_validation_result.missing_directories}")
+                            
+                            if hasattr(data_validation_result, 'metadata'):
+                                logger.info(f"Validation metadata: {data_validation_result.metadata}")
+                            logger.debug(f"Validation result type: {type(data_validation_result)}")
+                        else:
+                            # 如果是字典格式，尝试提取基本信息
+                            logger.info(f"Data validation result (dict format): {data_validation_result}")
+                            logger.debug(f"Validation result type: {type(data_validation_result)}")
+                    else:
+                        logger.info("Data validation was skipped or failed in archive validation")
                         
                     validation_result = archive_validation_result
                     
@@ -228,16 +238,35 @@ class GoogleDriveMonitorSystem:
                         file_count = validation_result['file_count']
                         
                         # 检查数据格式验证结果
-                        if validation_result.get('data_validation'):
-                            data_val = validation_result['data_validation']
-                            validation_score = f"{data_val['score']:.1f}/100"
-                            if data_val['is_valid']:
-                                logger.success(f"压缩文件和数据格式验证成功: {file_count} 个文件, 得分: {data_val['score']:.1f}/100")
-                                extract_status = f"成功 (数据验证: {data_val['score']:.1f}/100)"
+                        if data_validation_result:
+                            # 处理字典格式的data_validation_result
+                            score = data_validation_result.get('score') if isinstance(data_validation_result, dict) else getattr(data_validation_result, 'score', None)
+                            is_valid = data_validation_result.get('is_valid') if isinstance(data_validation_result, dict) else getattr(data_validation_result, 'is_valid', None)
+                            
+                            if score is not None:
+                                validation_score = f"{score:.1f}/100"
+                                if is_valid:
+                                    logger.success(f"压缩文件和数据格式验证成功: {file_count} 个文件, 得分: {score:.1f}/100")
+                                    extract_status = f"成功 (数据验证: {score:.1f}/100)"
+                                else:
+                                    summary = data_validation_result.get('summary') if isinstance(data_validation_result, dict) else getattr(data_validation_result, 'summary', 'Unknown validation issue')
+                                    logger.warning(f"压缩文件完整，但数据格式验证失败: {summary}")
+                                    errors = data_validation_result.get('errors', []) if isinstance(data_validation_result, dict) else getattr(data_validation_result, 'errors', [])
+                                    errors_count = len(errors)
+                                    extract_status = f"部分成功 (数据格式问题: {errors_count}个错误)"
+                                    # 生成详细的错误信息，包括具体问题
+                                    error_details = []
+                                    for error in errors[:3]:  # 最多显示前3个错误
+                                        if "Missing camera directory" in error:
+                                            error_details.append("缺少camera目录（移动障碍物检测需要）")
+                                        elif "Missing" in error and "directory" in error:
+                                            error_details.append(f"缺少目录: {error.split(': ')[1] if ': ' in error else error}")
+                                        else:
+                                            error_details.append(error)
+                                    error_message = f"数据格式问题: {'; '.join(error_details)}"
                             else:
-                                logger.warning(f"压缩文件完整，但数据格式验证失败: {data_val['summary']}")
-                                extract_status = f"部分成功 (数据格式问题: {len(data_val['errors'])}个错误)"
-                                error_message = f"数据格式问题: {', '.join(data_val['errors'][:3])}"
+                                validation_score = "N/A (解析失败)"
+                                logger.warning(f"数据验证结果解析失败")
                         else:
                             validation_score = "N/A (跳过验证)"
                             logger.success(f"压缩文件验证成功: {file_count} 个文件 (跳过数据格式验证)")
@@ -257,17 +286,30 @@ class GoogleDriveMonitorSystem:
                                     file_count = validation_result['file_count']
                                     error_message = ""
                                     
+                                    # 更新data_validation_result
+                                    data_validation_result = validation_result.get('data_validation')
+                                    
                                     # 检查数据格式验证结果
-                                    if validation_result.get('data_validation'):
-                                        data_val = validation_result['data_validation']
-                                        validation_score = f"{data_val['score']:.1f}/100"
-                                        if data_val['is_valid']:
-                                            logger.success(f"使用密码解压成功，数据格式验证通过: {file_count} 个文件, 得分: {data_val['score']:.1f}/100")
-                                            extract_status = f"成功 (密码+数据验证: {data_val['score']:.1f}/100)"
+                                    if data_validation_result and hasattr(data_validation_result, 'score'):
+                                        validation_score = f"{data_validation_result.score:.1f}/100"
+                                        if hasattr(data_validation_result, 'is_valid') and data_validation_result.is_valid:
+                                            logger.success(f"使用密码解压成功，数据格式验证通过: {file_count} 个文件, 得分: {data_validation_result.score:.1f}/100")
+                                            extract_status = f"成功 (密码+数据验证: {data_validation_result.score:.1f}/100)"
                                         else:
-                                            logger.warning(f"使用密码解压成功，但数据格式验证失败: {data_val['summary']}")
+                                            summary = getattr(data_validation_result, 'summary', 'Unknown validation issue')
+                                            logger.warning(f"使用密码解压成功，但数据格式验证失败: {summary}")
                                             extract_status = f"部分成功 (密码成功，数据格式问题)"
-                                            error_message = f"数据格式问题: {', '.join(data_val['errors'][:3])}"
+                                            # 生成详细的错误信息
+                                            error_details = []
+                                            errors = getattr(data_validation_result, 'errors', [])
+                                            for error in errors[:3]:
+                                                if "Missing camera directory" in error:
+                                                    error_details.append("缺少camera目录（移动障碍物检测需要）")
+                                                elif "Missing" in error and "directory" in error:
+                                                    error_details.append(f"缺少目录: {error.split(': ')[1] if ': ' in error else error}")
+                                                else:
+                                                    error_details.append(error)
+                                            error_message = f"数据格式问题: {'; '.join(error_details)}"
                                     else:
                                         validation_score = "N/A (跳过验证)"
                                         logger.success(f"使用密码解压成功: {file_count} 个文件")
@@ -277,10 +319,14 @@ class GoogleDriveMonitorSystem:
                 error_message = str(e)
                 logger.warning(f"压缩文件处理出错: {e}")
             
-            # 3. 提取场景类型、大小状态和PCD尺度信息
+            # 3. 提取场景类型、大小状态、PCD尺度和Transient检测信息
             scene_type = ''
             size_status = ''
             pcd_scale = ''
+            transient_decision = ''
+            wdd = ''
+            wpo = ''
+            sai = ''
             
             # 从archive validation结果中提取这些信息
             if 'validation_result' in locals() and validation_result:
@@ -301,10 +347,51 @@ class GoogleDriveMonitorSystem:
                     pcd_scale = '未找到PCD'
                 else:
                     pcd_scale = '解析失败'
+            
+            # 从data_validation_result中提取transient检测信息
+            logger.debug(f"Debug: data_validation_result type = {type(data_validation_result)}")
+            logger.debug(f"Debug: data_validation_result keys = {list(data_validation_result.keys()) if isinstance(data_validation_result, dict) else 'Not a dict'}")
+            
+            if data_validation_result:
+                # 获取metadata - 可能是字典中的键或对象的属性
+                metadata = data_validation_result.get('metadata') if isinstance(data_validation_result, dict) else getattr(data_validation_result, 'metadata', None)
+                logger.debug(f"Debug: metadata type = {type(metadata)}, keys = {list(metadata.keys()) if isinstance(metadata, dict) and metadata else 'None or not dict'}")
                 
-                logger.debug(f"验证结果提取: scene_type={scene_type}, size_status={size_status}, pcd_scale={pcd_scale}")
+                if metadata:
+                    transient_data = metadata.get('transient_validation', {})
+                    logger.debug(f"Debug: transient_data keys = {list(transient_data.keys()) if transient_data else 'Empty'}")
+                    transient_detection = transient_data.get('transient_detection', {})
+                    logger.debug(f"Debug: transient_detection = {transient_detection}")
+                    
+                    if transient_detection:
+                        transient_decision = transient_detection.get('decision', 'N/A')
+                        metrics = transient_detection.get('metrics', {})
+                        wdd = f"{metrics.get('WDD', 0):.3f}" if metrics.get('WDD') is not None else 'N/A'
+                        wpo = f"{metrics.get('WPO', 0):.1f}%" if metrics.get('WPO') is not None else 'N/A'
+                        sai = f"{metrics.get('SAI', 0):.1f}%" if metrics.get('SAI') is not None else 'N/A'
+                        
+                        logger.debug(f"验证结果提取: scene_type={scene_type}, size_status={size_status}, pcd_scale={pcd_scale}")
+                        logger.debug(f"Transient检测结果: decision={transient_decision}, WDD={wdd}, WPO={wpo}, SAI={sai}")
+                    else:
+                        transient_decision = 'N/A'
+                        wdd = wpo = sai = 'N/A'
+                        logger.debug("Debug: No transient_detection data found in metadata")
+                else:
+                    transient_decision = 'N/A'
+                    wdd = wpo = sai = 'N/A'
+                    logger.debug("Debug: No metadata found in data_validation_result")
+            else:
+                transient_decision = 'N/A'
+                wdd = wpo = sai = 'N/A'
+                logger.debug("Debug: No data_validation_result found")
 
             # 4. 写入Google Sheets
+            # ===== SHEETS记录契约 =====
+            # 这个字典必须符合SheetsRecordContract定义
+            # 所有新增字段必须同时更新：
+            # 1. validation/data_contracts.py中的SheetsRecordContract
+            # 2. sheets/sheets_writer.py中的headers和field_mapping
+            # 3. sheets/data_mapper.py中的提取逻辑
             sheets_record = {
                 'file_id': file_id,
                 'file_name': file_name,
@@ -319,6 +406,11 @@ class GoogleDriveMonitorSystem:
                 'scene_type': scene_type,     # 添加场景类型
                 'size_status': size_status,   # 添加大小状态
                 'pcd_scale': pcd_scale,      # 添加PCD尺度（显示尺寸）
+                # 添加Transient检测相关字段
+                'transient_decision': transient_decision,  # 添加移动障碍物检测决策
+                'wdd': wdd,                   # 加权检测密度
+                'wpo': wpo,                   # 加权人员占用率
+                'sai': sai,                   # 场景活动指数
                 # 添加状态信息用于颜色格式化
                 'size_status_level': size_validation.get('size_status', 'unknown') if 'validation_result' in locals() and validation_result else 'unknown',
                 'pcd_scale_status': pcd_validation.get('scale_status', 'unknown') if 'validation_result' in locals() and validation_result and pcd_validation else 'unknown',
@@ -397,9 +489,13 @@ class GoogleDriveMonitorSystem:
                 'file_count': '',
                 'process_time': start_time,
                 'validation_score': 'N/A (Failed)',
-                'scene_type': 'unknown',      # 失败时设为unknown
-                'size_status': 'unknown',     # 失败时设为unknown
-                'pcd_scale': 'unknown',       # 失败时设为unknown
+                'scene_type': 'unknown',          # 失败时设为unknown
+                'size_status': 'unknown',         # 失败时设为unknown
+                'pcd_scale': 'unknown',           # 失败时设为unknown
+                'transient_decision': 'N/A',      # 失败时设为N/A
+                'wdd': 'N/A',                     # 失败时设为N/A
+                'wpo': 'N/A',                     # 失败时设为N/A
+                'sai': 'N/A',                     # 失败时设为N/A
                 'error_message': error_msg,
                 'notes': 'Processing failed'
             }

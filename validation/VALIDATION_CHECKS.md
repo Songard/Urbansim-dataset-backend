@@ -4,11 +4,58 @@ This document describes all validation checks performed by the Urban Simulation 
 
 ## Overview
 
-The validation system performs comprehensive checks on data files and directories to ensure data quality and integrity before processing. All validation results are automatically uploaded to Google Sheets for tracking and monitoring.
+The validation system performs comprehensive checks on MetaCam data packages to ensure data quality and integrity before processing. The system uses a **pipeline validation approach** where multiple validators work in sequence to provide comprehensive data quality assessment.
+
+### Validation Pipeline Architecture
+
+**Single Data Format**: All data packages follow the MetaCam format as defined by `data_schemas/metacam_schema.yaml`
+
+**Pipeline Stages**:
+1. **Basic Format Validation** (MetaCamValidator): Validates directory structure, required files, and metadata
+2. **Transient Object Detection** (TransientValidator): Analyzes camera images for moving obstacles (if camera directory exists)
+
+**Result Combination**: 
+- Combined score = Basic Format (70%) + Transient Detection (30%)
+- Overall validation passes only if basic format validation passes
+- Transient detection enhances the validation but doesn't block processing if unavailable
 
 ## Validation Checks
 
-### 1. Metadata File Validation
+### Pipeline Stage 1: Basic Format Validation (MetaCamValidator)
+
+This stage validates the fundamental structure and files of MetaCam data packages according to the schema definition.
+
+#### 1.1 Directory Structure Validation
+
+**Required Directories** (per `metacam_schema.yaml`):
+- `camera/` - Camera data directory
+  - `camera/left/` - Left camera image sequence
+  - `camera/right/` - Right camera image sequence  
+- `data/` - Raw sensor data directory
+- `info/` - Device information and configuration directory
+
+**Validation Rules**:
+- All required directories must exist
+- Missing required directories result in validation failure
+- Missing optional subdirectories generate warnings
+
+#### 1.2 Required Files Validation
+
+**Root Directory Files**:
+- `colorized-realtime.las` - Colored point cloud data (1MB-1GB)
+- `metadata.yaml` - Recording metadata (100B-10KB)
+- `Preview.jpg` - Preview image (1KB-10MB)
+- `Preview.pcd` - Preview point cloud (1KB-100MB)
+
+**Data Directory Files**:
+- `data/data_0` - Primary sensor data file (1MB-2GB)
+
+**Info Directory Files**:
+- `info/calibration.json` - Camera calibration parameters
+- `info/device_info.json` - Device information
+- `info/rtk_info.json` - RTK positioning data
+
+#### 1.3 Metadata File Validation
 
 **File**: `metadata.yaml`
 
@@ -107,7 +154,109 @@ The following PCD scale information is automatically uploaded to Google Sheets:
 - Detailed logging for troubleshooting
 - Note: Binary compressed format is not yet supported
 
-### 4. Data Quality Checks
+### Pipeline Stage 2: Transient Object Detection (TransientValidator)
+
+This stage analyzes camera image sequences for moving obstacles (people, dogs, etc.) using YOLO11 AI models. This validation only runs if the `camera/` directory structure exists and contains image files.
+
+#### 2.1 Camera Directory Detection
+
+**Search Strategy**:
+1. Check for `camera/` directory in the target path
+2. If not found, recursively search subdirectories (max depth: 2)
+3. Verify presence of `camera/left/` and/or `camera/right/` subdirectories
+4. Confirm image files exist in camera subdirectories
+
+**Supported Image Formats**: `.jpg`, `.jpeg`, `.png`, `.bmp`
+
+#### 2.2 YOLO Model Validation
+
+**Purpose**: Validates the availability and integrity of YOLO detection and segmentation models for computer vision tasks.
+
+**Models Required**:
+- **Detection Model**: `yolo11n.pt` (primary model for object detection)
+- **Segmentation Model**: `yolo11n-seg.pt` (enhanced model for instance segmentation)
+
+**Validation Process**:
+
+#### Model Loading Strategy
+1. **Detection Model Loading**:
+   - Attempts to load specified detection model (default: `yolo11n.pt`)
+   - If model file doesn't exist, YOLO will automatically download it
+   - Model is moved to specified device (CPU/GPU)
+   - **Critical Failure**: If detection model fails to load, system cannot proceed
+
+2. **Segmentation Model Loading**:
+   - Attempts to load corresponding segmentation model (e.g., `yolo11n-seg.pt`)
+   - If not found locally, automatically attempts to download
+   - Falls back to detection model if segmentation model unavailable
+   - **Warning Level**: Segmentation failure doesn't block processing but reduces accuracy
+
+#### Validation Status Levels
+- **SUCCESS**: Both detection and segmentation models loaded successfully
+- **WARNING**: Detection model loaded, segmentation model failed (reduced functionality)
+- **CRITICAL ERROR**: Detection model failed to load (system cannot function)
+
+#### Error Handling
+- **Model Download Failure**: 
+  - Level: `ERROR` (Critical)
+  - Message: "CRITICAL: Failed to download segmentation model: {error_details}"
+  - System continues with detection-only mode
+  
+- **Segmentation Fallback**:
+  - Level: `ERROR` (Critical but non-blocking)
+  - Message: "CRITICAL: Segmentation model not available, falling back to detection model - this may impact accuracy"
+  - Each segmentation request triggers this warning
+
+#### Technical Implementation
+- **Model Detection**: Automatic generation of segmentation model name from detection model
+- **Auto-Download**: Leverages ultralytics YOLO auto-download capability
+- **Device Management**: Proper GPU/CPU allocation for loaded models
+- **Graceful Degradation**: System continues functioning with reduced capability when segmentation unavailable
+
+#### Monitoring and Alerting
+- **Model Status**: Tracked in validation results
+- **Performance Impact**: Segmentation failures logged as critical issues affecting accuracy
+- **System Health**: Model availability monitored for operational status
+
+#### 2.3 Moving Obstacle Detection Process
+
+**Target Objects**: People (class 0) and dogs (class 16) from COCO dataset
+
+**Processing Pipeline**:
+1. **Adaptive Sampling**: Calculate optimal frame sampling rates based on total frame count
+2. **Batch Processing**: Process images in batches for efficiency
+3. **Detection Analysis**: Use YOLO11 detection model for object identification
+4. **Segmentation Analysis**: Use YOLO11 segmentation model for precise object boundaries (if available)
+5. **Metrics Calculation**: Compute quality metrics for validation decision
+
+**Quality Metrics**:
+- **WDD (Weighted Detection Density)**: Density of detected moving obstacles
+- **WPO (Weighted Person Occupancy)**: Percentage of frames with people detected  
+- **SAI (Scene Activity Index)**: Overall scene activity level
+
+**Decision Thresholds**:
+- **PASS**: Low obstacle density, suitable for reconstruction
+- **NEED_REVIEW**: Moderate obstacle presence, manual review recommended
+- **REJECT**: High obstacle density, unsuitable for quality reconstruction
+
+#### 2.4 Pipeline Result Combination
+
+**Score Calculation**:
+```
+Combined Score = (Basic Format Score × 0.7) + (Transient Detection Score × 0.3)
+```
+
+**Overall Validation Logic**:
+- **PASS**: Basic format validation passes (regardless of transient detection)
+- **Enhanced PASS**: Both basic format and transient detection pass
+- **FAIL**: Basic format validation fails
+
+**Metadata Integration**:
+- Transient detection results added to validation metadata
+- Quality metrics (WDD, WPO, SAI) uploaded to Google Sheets
+- Detection decision recorded for tracking
+
+### 5. Data Quality Checks
 
 **Purpose**: Validates the quality and integrity of data content.
 
@@ -133,13 +282,41 @@ All validation results are:
 
 ## Usage
 
-The validation system runs automatically when processing files. Manual validation can be triggered using:
+### Automatic Pipeline Validation
+
+The validation system runs automatically when processing MetaCam data packages. The system detects MetaCam format and triggers pipeline validation:
 
 ```python
 from validation.manager import ValidationManager
 
 validator = ValidationManager()
-results = validator.validate_directory("/path/to/data")
+# Automatically detects MetaCam format and runs pipeline validation
+results = validator.validate("/path/to/metacam/data")
+```
+
+### Manual Validator Selection
+
+You can also run individual validators manually:
+
+```python
+# Run only basic format validation
+results = validator.validate("/path/to/data", validator_name="MetaCamValidator")
+
+# Run only transient detection (requires camera directory)
+results = validator.validate("/path/to/data", validator_name="TransientValidator")
+```
+
+### Pipeline Validation Results
+
+Pipeline validation returns enhanced results with combined metrics:
+
+```python
+if results.validator_type == "Pipeline(MetaCam+Transient)":
+    # Access pipeline-specific metadata
+    pipeline_info = results.metadata['validation_pipeline']
+    base_score = pipeline_info['base_validation']['score']
+    transient_score = pipeline_info['transient_validation']['score']
+    combined_score = pipeline_info['combined_score']
 ```
 
 ## Maintenance
@@ -152,5 +329,5 @@ This documentation should be updated whenever:
 
 ---
 
-*Last Updated: [Auto-generated timestamp]*
-*Version: 1.0*
+*Last Updated: 2025-08-11 - Pipeline Validation Architecture*
+*Version: 2.0 - Added pipeline validation with MetaCam + Transient detection*

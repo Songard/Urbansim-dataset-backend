@@ -440,10 +440,15 @@ class ArchiveHandler:
                         try:
                             validation_result = self.validation_manager.validate(
                                 extract_result, 
-                                ValidationLevel.STANDARD,
-                                format_hint='metacam'
+                                ValidationLevel.STANDARD
                             )
                             
+                            # ===== ValidationResult到字典转换契约 =====
+                            # 重要：必须保存完整的metadata，因为它包含：
+                            # - transient_validation.transient_detection (WDD/WPO/SAI数据)
+                            # - extracted_metadata (时间/位置信息) 
+                            # - validation_pipeline (组合验证结果)
+                            # - 所有validator的详细结果
                             result['data_validation'] = {
                                 'is_valid': validation_result.is_valid,
                                 'score': validation_result.score,
@@ -452,7 +457,8 @@ class ArchiveHandler:
                                 'missing_files': validation_result.missing_files,
                                 'missing_directories': validation_result.missing_directories,
                                 'summary': validation_result.summary,
-                                'validator_type': validation_result.validator_type
+                                'validator_type': validation_result.validator_type,
+                                'metadata': validation_result.metadata  # 必须保存！包含所有validator结果和transient数据
                             }
                             
                             # 整体验证结果：压缩文件完整性 AND 数据格式验证 AND 文件大小
@@ -510,7 +516,8 @@ class ArchiveHandler:
                                 'missing_files': [],
                                 'missing_directories': [],
                                 'summary': f"Validation failed: {e}",
-                                'validator_type': 'unknown'
+                                'validator_type': 'unknown',
+                                'metadata': {}  # 异常时提供空metadata
                             }
                             result['is_valid'] = False
                             result['error'] = f"数据格式验证异常: {e}"
@@ -705,8 +712,8 @@ class ArchiveHandler:
                 if any(keyword in str(e).lower() for keyword in ['password', 'encrypted']):
                     info['is_password_protected'] = True
             
-            # 验证压缩文件（包含数据格式验证）
-            info['validation_result'] = self.validate_archive(file_path, password, validate_data_format=True)
+            # 验证压缩文件（仅验证压缩包完整性，不包含数据格式验证以避免重复调用）
+            info['validation_result'] = self.validate_archive(file_path, password, validate_data_format=False)
             
             # 提取场景类型、大小状态和PCD尺度信息
             validation_result = info['validation_result']

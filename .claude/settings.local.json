@@ -5,7 +5,9 @@
       "Bash(tree:*)",
       "Bash(python:*)",
       "Bash(del:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(dir temp)",
+      "Bash(git reset:*)"
     ],
     "deny": []
   }

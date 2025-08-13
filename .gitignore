@@ -304,6 +304,48 @@ yarn-debug.log*
 yarn-error.log*
 
 # ========================================
+# Machine Learning Models and Data
+# ========================================
+
+# PyTorch model files
+*.pt
+*.pth
+*.pkl
+*.pickle
+
+# TensorFlow model files
+*.pb
+*.h5
+*.hdf5
+saved_model/
+*.ckpt
+*.ckpt.*
+
+# ONNX models
+*.onnx
+
+# Scikit-learn models
+*.joblib
+
+# Other ML model formats
+*.model
+*.bin
+*.weights
+*.safetensors
+
+# Large datasets and training data
+dataset/
+datasets/
+training_data/
+model_checkpoints/
+checkpoints/
+
+# YOLO specific
+yolo*.pt
+yolo*.weights
+yolo*.cfg
+
+# ========================================
 # Custom Project Exclusions
 # ========================================
 
