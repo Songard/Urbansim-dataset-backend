@@ -428,8 +428,9 @@ class ArchiveHandler:
                     result['size_validation'] = size_validation
                     logger.info(f"文件大小验证结果: {size_validation['size_gb']}GB - {size_validation['size_status']} - {size_validation.get('error_message', 'OK')}")
                     
-                    # 验证PCD点云尺度
-                    pcd_validation = self._validate_pcd_in_extracted_dir(extract_result)
+                    # 验证PCD点云尺度（传入场景类型）
+                    scene_type = scene_validation.get('scene_type', 'outdoor')
+                    pcd_validation = self._validate_pcd_in_extracted_dir(extract_result, scene_type)
                     result['pcd_validation'] = pcd_validation
                     if pcd_validation:
                         logger.info(f"PCD尺度验证结果: {pcd_validation.get('width_m', 0):.1f}m × {pcd_validation.get('height_m', 0):.1f}m - {pcd_validation['scale_status']} - {pcd_validation.get('error_message', 'OK')}")
@@ -607,12 +608,13 @@ class ArchiveHandler:
         logger.warning(f"No valid password found for {Path(file_path).name}")
         return None
     
-    def _validate_pcd_in_extracted_dir(self, extract_dir: str) -> Optional[Dict]:
+    def _validate_pcd_in_extracted_dir(self, extract_dir: str, scene_type: str = 'outdoor') -> Optional[Dict]:
         """
         在解压目录中查找并验证Preview.pcd文件
         
         Args:
             extract_dir (str): 解压目录路径
+            scene_type (str): 场景类型 ('indoor', 'outdoor', 'unknown')
             
         Returns:
             Optional[Dict]: PCD验证结果，如果没有找到PCD文件返回None
@@ -649,7 +651,7 @@ class ArchiveHandler:
             logger.debug(f"找到PCD文件: {pcd_file_path}")
             
             # 验证PCD尺度
-            pcd_result = validate_pcd_scale(pcd_file_path)
+            pcd_result = validate_pcd_scale(pcd_file_path, scene_type)
             return pcd_result
             
         except Exception as e:

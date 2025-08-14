@@ -378,9 +378,9 @@ class EarlyTerminationManager:
         """
         self.min_processed_ratio = min_processed_ratio
         self.termination_thresholds = {
-            "WDD": 12.0,
-            "WPO": 40.0,
-            "SAI": 35.0
+            "WDD": 8.0,
+            "WPO": 8.0,
+            "SAI": 8.0
         }
     
     def should_terminate(self, current_metrics: Dict[str, float], 

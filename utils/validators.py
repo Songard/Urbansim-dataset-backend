@@ -966,12 +966,13 @@ def _parse_binary_pcd_points(pcd_file_path: str, header: Dict[str, Any], max_poi
         logger.error(f"二进制PCD解析失败 {pcd_file_path}: {e}")
         return result
 
-def validate_pcd_scale(pcd_file_path: str) -> Dict[str, Any]:
+def validate_pcd_scale(pcd_file_path: str, scene_type: str = 'outdoor') -> Dict[str, Any]:
     """
     验证PCD点云的尺度是否合理
     
     Args:
         pcd_file_path (str): PCD文件路径
+        scene_type (str): 场景类型 ('indoor', 'outdoor', 'unknown')
         
     Returns:
         Dict[str, Any]: 验证结果
@@ -1024,12 +1025,21 @@ def validate_pcd_scale(pcd_file_path: str) -> Dict[str, Any]:
         result['area_sqm'] = round(area_sqm, 2)
         result['points_parsed'] = point_data['points_parsed']
         
-        # 定义合理范围：长宽在100m左右比较合适
-        OPTIMAL_SIZE = 100.0  # 100米
-        WARNING_MIN = 50.0    # 50米以下警告
-        WARNING_MAX = 200.0   # 200米以上警告
-        ERROR_MIN = 10.0      # 10米以下异常
-        ERROR_MAX = 500.0     # 500米以上异常
+        # 根据场景类型定义合理范围
+        if scene_type.lower() == 'indoor':
+            # 室内场景：阈值为室外场景的一半
+            OPTIMAL_SIZE = 50.0   # 50米（室外100米的一半）
+            WARNING_MIN = 25.0    # 25米以下警告（室外50米的一半）
+            WARNING_MAX = 100.0   # 100米以上警告（室外200米的一半）
+            ERROR_MIN = 5.0       # 5米以下异常（室外10米的一半）
+            ERROR_MAX = 250.0     # 250米以上异常（室外500米的一半）
+        else:
+            # 室外场景（默认）或未知场景：保持原有标准
+            OPTIMAL_SIZE = 100.0  # 100米
+            WARNING_MIN = 50.0    # 50米以下警告
+            WARNING_MAX = 200.0   # 200米以上警告
+            ERROR_MIN = 10.0      # 10米以下异常
+            ERROR_MAX = 500.0     # 500米以上异常
         
         # 使用长宽中的最大值作为主要判断标准
         max_dimension = max(width_m, height_m)
@@ -1060,7 +1070,7 @@ def validate_pcd_scale(pcd_file_path: str) -> Dict[str, Any]:
                 result['error_message'] = f'点云过于狭长: {width_m:.1f}m × {height_m:.1f}m'
                 result['is_valid_scale'] = True
         
-        logger.debug(f"PCD尺度验证: {pcd_file_path} -> {width_m:.1f}m × {height_m:.1f}m ({result['scale_status']})")
+        logger.debug(f"PCD尺度验证({scene_type}): {pcd_file_path} -> {width_m:.1f}m × {height_m:.1f}m ({result['scale_status']})")
         return result
         
     except Exception as e:

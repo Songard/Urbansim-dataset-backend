@@ -48,33 +48,33 @@ def create_demo_pcd(file_path: str, width: float, height: float, description: st
 def demo_pcd_scale_validation():
     """演示PCD点云尺度验证功能"""
     print("=== PCD点云尺度验证演示 ===")
-    print("合理范围：长宽约100m左右")
-    print("警告范围：50m-200m")
-    print("异常范围：< 10m 或 > 500m")
+    print("室外场景标准：100m左右（警告：50-200m，异常：<10m或>500m）")
+    print("室内场景标准：50m左右（警告：25-100m，异常：<5m或>250m）")
     print()
     
     test_scenarios = [
-        (100, 80, "理想尺度的城市场景"),
-        (150, 120, "较大的公园场景"),
-        (30, 25, "小型室内场景"),
-        (300, 200, "大型广场场景"),
-        (8, 5, "异常小的测试场景"),
-        (600, 400, "异常大的区域场景")
+        (100, 80, "outdoor", "理想尺度的城市场景"),
+        (150, 120, "outdoor", "较大的公园场景"),
+        (30, 30, "indoor", "理想尺度的室内场景"),
+        (15, 15, "indoor", "偏小的室内场景"),
+        (300, 200, "outdoor", "大型广场场景"),
+        (8, 5, "indoor", "异常小的测试场景"),
+        (600, 400, "outdoor", "异常大的区域场景")
     ]
     
     temp_dir = tempfile.mkdtemp()
     
     try:
-        for i, (width, height, description) in enumerate(test_scenarios):
-            print(f"--- 场景 {i+1}: {description} ---")
+        for i, (width, height, scene_type, description) in enumerate(test_scenarios):
+            print(f"--- 场景 {i+1}: {description} ({scene_type}) ---")
             
             # 创建测试文件
             pcd_file = os.path.join(temp_dir, f"demo_{i}.pcd")
             if not create_demo_pcd(pcd_file, width, height, description):
                 continue
             
-            # 验证尺度
-            result = validate_pcd_scale(pcd_file)
+            # 验证尺度（传入场景类型）
+            result = validate_pcd_scale(pcd_file, scene_type)
             
             status_map = {
                 'optimal': 'GOOD 最佳',
@@ -88,6 +88,7 @@ def demo_pcd_scale_validation():
             
             status_display = status_map.get(result['scale_status'], result['scale_status'])
             
+            print(f"  场景类型: {scene_type}")
             print(f"  预设尺度: {width}m × {height}m")
             print(f"  实际尺度: {result['width_m']:.1f}m × {result['height_m']:.1f}m")
             print(f"  覆盖面积: {result['area_sqm']:.0f} 平方米")
@@ -112,13 +113,19 @@ def demo_integration_example():
     print()
     print("在实际使用中，PCD尺度验证会：")
     print("1. 自动查找解压后的Preview.pcd文件")
-    print("2. 解析点云数据并计算长宽尺度")
-    print("3. 根据尺度范围给出验证状态：")
-    print("   - optimal: 100m左右，理想尺度")
-    print("   - warning_small/large: 50-200m，可接受但有警告")
-    print("   - error_too_small/large: <10m或>500m，异常尺度")
-    print("4. 将验证结果记录到Google Sheets的'PCD Scale'列")
-    print("5. 提供详细的日志信息用于问题排查")
+    print("2. 根据文件名确定场景类型（indoor/outdoor/unknown）")
+    print("3. 解析点云数据并计算长宽尺度")
+    print("4. 根据场景类型和尺度范围给出验证状态：")
+    print("   室外场景：")
+    print("     - optimal: 100m左右，理想尺度")
+    print("     - warning: 50-200m，可接受但有警告")
+    print("     - error: <10m或>500m，异常尺度")
+    print("   室内场景：")
+    print("     - optimal: 50m左右，理想尺度")  
+    print("     - warning: 25-100m，可接受但有警告")
+    print("     - error: <5m或>250m，异常尺度")
+    print("5. 将验证结果记录到Google Sheets的'PCD Scale'列")
+    print("6. 提供详细的日志信息用于问题排查")
     print()
     print("重要说明：")
     print("- PCD尺度验证是警告级别，不会导致文件处理失败")
@@ -138,10 +145,11 @@ def main():
     print()
     print("演示完成！")
     print()
-    print("新增PCD验证功能特点：")
+    print("PCD验证功能特点：")
     print("- 自动解析PCD文件头部和点云数据")
     print("- 计算点云的空间尺度（长x宽x高）")
-    print("- 基于100m基准进行合理性判断")
+    print("- 根据场景类型设置不同的验证标准")
+    print("- 室内场景的阈值为室外场景的一半")
     print("- 提供多级验证状态（最佳/警告/异常）")
     print("- 完全集成到现有验证流程中")
     print("- Google Sheets中新增PCD Scale列")

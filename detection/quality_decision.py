@@ -67,15 +67,15 @@ class QualityDecisionEngine:
     # 单指标否决阈值（严重超标直接拒绝）
     REJECT_THRESHOLDS = {
         "WDD": 8.0,
-        "WPO": 30.0,
-        "SAI": 25.0
+        "WPO": 5.0,
+        "SAI": 5.0
     }
     
     # 问题指标阈值（两个或以上问题指标需复核）
     PROBLEM_THRESHOLDS = {
-        "WDD": 5.0,
-        "WPO": 20.0,
-        "SAI": 15.0
+        "WDD": 1.0,
+        "WPO": 1.0,
+        "SAI": 1.0
     }
     
     def __init__(self, scene_type: str = "default"):

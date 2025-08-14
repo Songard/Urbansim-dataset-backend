@@ -336,22 +336,22 @@ class ThresholdManager:
     # 默认阈值配置
     DEFAULT_THRESHOLDS = {
         "WDD": {
-            "excellent": 1.0,
-            "acceptable": 1.5,
-            "review": 2.0,
+            "excellent": 0.1,
+            "acceptable": 0.25,
+            "review": 1.0,
             "reject": 8.0
         },
         "WPO": {
-            "excellent": 1.0,
-            "acceptable": 5.0,
-            "review": 10.0,
-            "reject": 30.0
+            "excellent": 0.1,
+            "acceptable": 0.25,
+            "review": 1.0,
+            "reject": 8.0
         },
         "SAI": {
-            "excellent": 5.0,
-            "acceptable": 15.0,
-            "review": 25.0,
-            "reject": 25.0
+            "excellent": 0.1,
+            "acceptable": 0.5,
+            "review": 2.0,
+            "reject": 10.0
         }
     }
     
@@ -372,12 +372,12 @@ class ThresholdManager:
         
         if scene_type == "indoor":
             # 室内环境更严格
-            base_thresholds["WDD"]["reject"] = 6.0
-            base_thresholds["WPO"]["reject"] = 25.0
+            base_thresholds["WDD"]["reject"] = 4.0
+            base_thresholds["WPO"]["reject"] = 4.0
         elif scene_type == "outdoor":
             # 室外稍宽松
-            base_thresholds["WDD"]["reject"] = 10.0
-            base_thresholds["WPO"]["reject"] = 35.0
+            base_thresholds["WDD"]["reject"] = 8.0
+            base_thresholds["WPO"]["reject"] = 8.0
         
         return base_thresholds
     
