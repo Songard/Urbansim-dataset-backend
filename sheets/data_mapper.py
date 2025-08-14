@@ -23,6 +23,7 @@ class SheetsDataMapper:
         'file_id': str,
         'file_name': str,
         'upload_time': str,
+        'device_id': str,
         'file_size': int,
         'file_type': str,
         'extract_status': str,
@@ -156,7 +157,8 @@ class SheetsDataMapper:
         metadata_info = {
             'start_time': '',
             'duration': '',
-            'location': ''
+            'location': '',
+            'device_id': ''
         }
         
         try:
@@ -192,6 +194,11 @@ class SheetsDataMapper:
                     lon = location.get('longitude', '')
                     if lat and lon:
                         metadata_info['location'] = f"{lat}, {lon}"
+                
+                # Extract device ID
+                device_id = extracted_metadata.get('device_id', '')
+                if device_id:
+                    metadata_info['device_id'] = device_id
         
         except Exception as e:
             print(f"Warning: Failed to extract metadata info: {e}")
@@ -320,6 +327,7 @@ class SheetsDataMapper:
             'start_time': '',
             'duration': '',
             'location': '',
+            'device_id': '',
             'scene_type': 'unknown',
             'size_status': 'unknown',
             'pcd_scale': 'unknown',

@@ -391,14 +391,15 @@ class MetaCamValidator(BaseValidator):
             errors.append(error_msg)
     
     def _extract_and_validate_metadata(self, root_path: str, errors: List[str], warnings: List[str]) -> Dict[str, Any]:
-        """Extract and validate metadata.yaml information"""
+        """Extract and validate metadata.yaml and device_info.json information"""
         metadata_info = {
             'start_time': None,
             'duration': None,
             'location': None,
             'parsed_successfully': False,
             'duration_status': None,
-            'duration_seconds': None
+            'duration_seconds': None,
+            'device_id': None
         }
         
         metadata_file = os.path.join(root_path, 'metadata.yaml')
@@ -487,7 +488,49 @@ class MetaCamValidator(BaseValidator):
         except Exception as e:
             errors.append(f"Error reading metadata.yaml: {e}")
         
+        # Extract device information from device_info.json
+        self._extract_device_info(root_path, metadata_info, errors, warnings)
+        
         return metadata_info
+    
+    def _extract_device_info(self, root_path: str, metadata_info: Dict[str, Any], errors: List[str], warnings: List[str]):
+        """Extract device information from info/device_info.json"""
+        device_info_file = os.path.join(root_path, 'info', 'device_info.json')
+        
+        if not os.path.exists(device_info_file):
+            warnings.append("device_info.json file not found")
+            return
+        
+        try:
+            with open(device_info_file, 'r', encoding='utf-8') as f:
+                device_data = json.load(f)
+            
+            # Extract model and SN to create device ID
+            model = device_data.get('model', '')
+            sn = device_data.get('SN', '')
+            
+            if model and sn:
+                device_id = f"{model}-{sn}"
+                metadata_info['device_id'] = device_id
+                logger.info(f"Extracted device ID: {device_id}")
+            else:
+                if not model:
+                    warnings.append("device_info.json missing 'model' field")
+                if not sn:
+                    warnings.append("device_info.json missing 'SN' field")
+                
+                # Fallback: use whatever is available
+                if model or sn:
+                    device_id = f"{model}{'-' if model and sn else ''}{sn}"
+                    metadata_info['device_id'] = device_id
+                    logger.info(f"Extracted partial device ID: {device_id}")
+                else:
+                    warnings.append("Unable to create device ID: both model and SN are missing")
+                    
+        except json.JSONDecodeError as e:
+            errors.append(f"Error parsing device_info.json: {e}")
+        except Exception as e:
+            errors.append(f"Error reading device_info.json: {e}")
     
     def _parse_duration_to_seconds(self, duration_str: str) -> Optional[int]:
         """Parse duration string (HH:MM:SS format) to seconds"""

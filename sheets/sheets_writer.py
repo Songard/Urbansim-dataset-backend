@@ -18,7 +18,7 @@ class SheetsWriter:
         self.sheet_name = Config.SHEET_NAME
         # Standardized headers - All English
         self.headers = [
-            'Entry ID', 'Validation Status', 'Validation Score', 'File ID', 'File Name', 'Upload Time', 'File Size', 'File Type',
+            'Entry ID', 'Validation Status', 'Validation Score', 'File ID', 'File Name', 'Upload Time', 'Device ID', 'File Size', 'File Type',
             'Extract Status', 'File Count', 'Process Time', 'Start Time', 'Duration', 'Location', 'Scene Type', 'Size Status', 
             'PCD Scale', 'Transient Detection', 'Weighted Detection Density', 'Weighted Person Occupancy', 'Scene Activity Index', 'Error Message', 'Warning Message', 'Notes'
         ]
@@ -26,10 +26,10 @@ class SheetsWriter:
         # Field mapping to headers - reorganized for better readability
         self.field_mapping = {
             'entry_id': 0, 'validation_status': 1, 'validation_score': 2, 'file_id': 3, 'file_name': 4, 
-            'upload_time': 5, 'file_size': 6, 'file_type': 7, 'extract_status': 8, 'file_count': 9, 
-            'process_time': 10, 'start_time': 11, 'duration': 12, 'location': 13, 'scene_type': 14, 
-            'size_status': 15, 'pcd_scale': 16, 'transient_decision': 17, 'wdd': 18, 'wpo': 19, 
-            'sai': 20, 'error_message': 21, 'warning_message': 22, 'notes': 23
+            'upload_time': 5, 'device_id': 6, 'file_size': 7, 'file_type': 8, 'extract_status': 9, 'file_count': 10, 
+            'process_time': 11, 'start_time': 12, 'duration': 13, 'location': 14, 'scene_type': 15, 
+            'size_status': 16, 'pcd_scale': 17, 'transient_decision': 18, 'wdd': 19, 'wpo': 20, 
+            'sai': 21, 'error_message': 22, 'warning_message': 23, 'notes': 24
         }
         self._initialize_service()
     
@@ -96,7 +96,7 @@ class SheetsWriter:
             if not self._verify_and_get_sheet_name():
                 return False
             
-            range_name = f"'{self.sheet_name}'!A1:X1"
+            range_name = f"'{self.sheet_name}'!A1:Y1"
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.spreadsheet_id,
                 range=range_name
@@ -164,7 +164,7 @@ class SheetsWriter:
                 logger.info(f"Using first sheet: '{self.sheet_name}'")
                 
                 # Try again with proper sheet name
-                range_name = f"'{self.sheet_name}'!A1:X1"
+                range_name = f"'{self.sheet_name}'!A1:Y1"
                 result = self.service.spreadsheets().values().get(
                     spreadsheetId=self.spreadsheet_id,
                     range=range_name
@@ -185,7 +185,7 @@ class SheetsWriter:
             
     def _create_headers(self):
         try:
-            range_name = f"'{self.sheet_name}'!A1:X1"
+            range_name = f"'{self.sheet_name}'!A1:Y1"
             body = {
                 'values': [self.headers]
             }
@@ -242,8 +242,8 @@ class SheetsWriter:
             return
             
         try:
-            # Duration is column M (index 12, 0-based) - shifted due to Entry ID and Validation Status
-            duration_column = 12
+            # Duration is column N (index 13, 0-based) - shifted due to Entry ID, Validation Status, and Device ID
+            duration_column = 13
             
             # Define colors based on status
             colors = {
@@ -309,8 +309,8 @@ class SheetsWriter:
             return
             
         try:
-            # Size Status is column P (index 15, 0-based) - shifted due to Entry ID and Validation Status
-            size_status_column = 15
+            # Size Status is column Q (index 16, 0-based) - shifted due to Entry ID, Validation Status, and Device ID
+            size_status_column = 16
             
             # Define colors based on size status
             colors = {
@@ -376,8 +376,8 @@ class SheetsWriter:
             return
             
         try:
-            # PCD Scale is column Q (index 16, 0-based) - shifted due to Entry ID and Validation Status
-            pcd_scale_column = 16
+            # PCD Scale is column R (index 17, 0-based) - shifted due to Entry ID, Validation Status, and Device ID
+            pcd_scale_column = 17
             
             # Define colors based on PCD scale status
             colors = {
@@ -446,8 +446,8 @@ class SheetsWriter:
             return
             
         try:
-            # Transient Detection is column R (index 17, 0-based) - shifted due to Entry ID and Validation Status
-            transient_column = 17
+            # Transient Detection is column S (index 18, 0-based) - shifted due to Entry ID, Validation Status, and Device ID
+            transient_column = 18
             
             # Define colors based on detection decision
             colors = {
@@ -664,7 +664,7 @@ class SheetsWriter:
                     return False
                     
                 next_row = self._get_next_empty_row()
-                range_name = f"'{self.sheet_name}'!A{next_row}:X{next_row}"
+                range_name = f"'{self.sheet_name}'!A{next_row}:Y{next_row}"
                 
                 # Use unified data preparation method
                 formatted_record = self.prepare_record_row(record)
