@@ -68,14 +68,14 @@ class QualityDecisionEngine:
     REJECT_THRESHOLDS = {
         "WDD": 8.0,
         "WPO": 5.0,
-        "SAI": 5.0
+        "SAI": 15.0  # 提高阈值，因为新SAI更敏感
     }
     
     # 问题指标阈值（两个或以上问题指标需复核）
     PROBLEM_THRESHOLDS = {
         "WDD": 1.0,
         "WPO": 1.0,
-        "SAI": 1.0
+        "SAI": 3.0  # 提高阈值，因为新SAI更敏感
     }
     
     def __init__(self, scene_type: str = "default"):

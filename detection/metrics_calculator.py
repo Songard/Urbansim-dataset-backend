@@ -19,6 +19,7 @@ class FrameMetrics:
     wdd_score: float = 0.0
     wpo_score: float = 0.0
     has_self_appearance: bool = False
+    self_appearance_score: float = 0.0  # 新增：细粒度自身入镜得分
     detection_count: int = 0
     segmentation_count: int = 0
     total_area_ratio: float = 0.0
@@ -77,9 +78,10 @@ class MetricsCalculator:
         detection_list = detections.get("detections", [])
         metrics.detection_count = len(detection_list)
         
-        # 计算WDD得分
+        # 计算WDD得分和自身入镜得分
         wdd_score = 0.0
         has_self_appearance = False
+        max_self_appearance_score = 0.0  # 该帧最高自身入镜得分
         
         for detection in detection_list:
             bbox = detection["bbox"]  # [x1, y1, x2, y2]
@@ -97,13 +99,19 @@ class MetricsCalculator:
             weighted_score = self.region_manager.calculate_weighted_value(region_weights, 1.0)
             wdd_score += weighted_score
             
-            # 检查自身入镜
-            if (class_name == "person" and 
-                self.region_manager.is_large_detection_in_self_zone(tuple(bbox))):
-                has_self_appearance = True
+            # 检查自身入镜（仅对person类别）
+            if class_name == "person":
+                # 传统二元判断
+                if self.region_manager.is_large_detection_in_self_zone(tuple(bbox)):
+                    has_self_appearance = True
+                
+                # 新的细粒度得分计算
+                self_score = self.region_manager.calculate_self_appearance_score(tuple(bbox))
+                max_self_appearance_score = max(max_self_appearance_score, self_score)
         
         metrics.wdd_score = wdd_score
         metrics.has_self_appearance = has_self_appearance
+        metrics.self_appearance_score = max_self_appearance_score
         self.detection_frames_count += 1
         
         # 添加或更新帧指标
@@ -214,10 +222,21 @@ class MetricsCalculator:
         else:
             WPO = 0.0
         
-        # 计算SAI（自身入镜指数）
-        frames_with_self_appearance = len([fm for fm in self.frame_metrics if fm.has_self_appearance])
+        # 计算SAI（自身入镜指数）- 使用加权平均得分而非二元统计
         total_sampled_frames = len(self.frame_metrics)
-        SAI = (frames_with_self_appearance / total_sampled_frames) * 100 if total_sampled_frames > 0 else 0.0
+        if total_sampled_frames > 0:
+            # 方法1：使用平均自身入镜得分
+            total_self_score = sum(fm.self_appearance_score for fm in self.frame_metrics)
+            average_self_score = total_self_score / total_sampled_frames
+            
+            # 方法2：考虑检测到自身入镜的帧比例
+            frames_with_self_appearance = len([fm for fm in self.frame_metrics if fm.has_self_appearance])
+            self_appearance_ratio = frames_with_self_appearance / total_sampled_frames
+            
+            # 综合计算：平均得分(70%) + 出现比例(30%)
+            SAI = (average_self_score * 70 + self_appearance_ratio * 30)
+        else:
+            SAI = 0.0
         
         return FinalMetrics(
             WDD=WDD,
@@ -253,14 +272,14 @@ class MetricsCalculator:
         # 严重超标检查
         if (temp_metrics.WDD > 12 or 
             temp_metrics.WPO > 40 or 
-            temp_metrics.SAI > 35):
+            temp_metrics.SAI > 50):  # 提高SAI阈值，因为新计算更敏感
             
             reason = []
             if temp_metrics.WDD > 12:
                 reason.append(f"WDD={temp_metrics.WDD:.1f}")
             if temp_metrics.WPO > 40:
                 reason.append(f"WPO={temp_metrics.WPO:.1f}%")
-            if temp_metrics.SAI > 35:
+            if temp_metrics.SAI > 50:
                 reason.append(f"SAI={temp_metrics.SAI:.1f}%")
                 
             return True, f"Early termination: {', '.join(reason)}"

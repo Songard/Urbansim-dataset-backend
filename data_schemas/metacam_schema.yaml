@@ -102,7 +102,7 @@ info_directory_files:
     description: "RTK定位信息"
     file_type: "json"
     min_size: 10
-    max_size: 1024  # 1KB
+    max_size: 10240  # 10@KB
     extensions: [".json"]
 
 # 验证级别

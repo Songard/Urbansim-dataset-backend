@@ -264,7 +264,9 @@ class ConnectionTester:
         logger.info("-" * 60)
         overall_status = "✅ PASS" if self.test_results['overall'] else "❌ FAIL"
         logger.info(f"{'Overall Result': <25} {overall_status}")
-        logger.info(f"{'Test Duration': <25} {elapsed:.2f} seconds")
+        from utils.error_formatter import ErrorFormatter
+        formatted_duration = ErrorFormatter.format_duration_seconds(elapsed)
+        logger.info(f"{'Test Duration': <25} {formatted_duration}")
         logger.info("=" * 60)
 
 def main():

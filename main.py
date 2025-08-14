@@ -25,6 +25,7 @@ from processors.file_downloader import FileDownloader
 from processors.archive_handler import ArchiveHandler
 from sheets.sheets_writer import SheetsWriter
 from validation.manager import ValidationManager
+from utils.error_formatter import ErrorFormatter
 
 logger = get_logger(__name__)
 
@@ -180,7 +181,7 @@ class GoogleDriveMonitorSystem:
                 return False
             
             # 2. 验证和解压（如果是压缩文件）
-            extract_status = "不适用"
+            extract_status = "N/A"
             file_count = ""
             error_message = ""
             validation_score = ""
@@ -234,7 +235,7 @@ class GoogleDriveMonitorSystem:
                     validation_result = archive_validation_result
                     
                     if validation_result['is_valid']:
-                        extract_status = "成功"
+                        extract_status = "Success"
                         file_count = validation_result['file_count']
                         
                         # 检查数据格式验证结果
@@ -247,23 +248,15 @@ class GoogleDriveMonitorSystem:
                                 validation_score = f"{score:.1f}/100"
                                 if is_valid:
                                     logger.success(f"压缩文件和数据格式验证成功: {file_count} 个文件, 得分: {score:.1f}/100")
-                                    extract_status = f"成功 (数据验证: {score:.1f}/100)"
+                                    extract_status = f"Success (Data Validation: {score:.1f}/100)"
                                 else:
                                     summary = data_validation_result.get('summary') if isinstance(data_validation_result, dict) else getattr(data_validation_result, 'summary', 'Unknown validation issue')
                                     logger.warning(f"压缩文件完整，但数据格式验证失败: {summary}")
                                     errors = data_validation_result.get('errors', []) if isinstance(data_validation_result, dict) else getattr(data_validation_result, 'errors', [])
                                     errors_count = len(errors)
-                                    extract_status = f"部分成功 (数据格式问题: {errors_count}个错误)"
-                                    # 生成详细的错误信息，包括具体问题
-                                    error_details = []
-                                    for error in errors[:3]:  # 最多显示前3个错误
-                                        if "Missing camera directory" in error:
-                                            error_details.append("缺少camera目录（移动障碍物检测需要）")
-                                        elif "Missing" in error and "directory" in error:
-                                            error_details.append(f"缺少目录: {error.split(': ')[1] if ': ' in error else error}")
-                                        else:
-                                            error_details.append(error)
-                                    error_message = f"数据格式问题: {'; '.join(error_details)}"
+                                    extract_status = f"Partial Success (Data Format Issues: {errors_count} errors)"
+                                    # Generate standardized English error message
+                                    error_message = self._create_validation_error_message(data_validation_result)
                             else:
                                 validation_score = "N/A (解析失败)"
                                 logger.warning(f"数据验证结果解析失败")
@@ -271,7 +264,7 @@ class GoogleDriveMonitorSystem:
                             validation_score = "N/A (跳过验证)"
                             logger.success(f"压缩文件验证成功: {file_count} 个文件 (跳过数据格式验证)")
                     else:
-                        extract_status = "失败"
+                        extract_status = "Failed"
                         error_message = validation_result.get('error', '未知错误')
                         logger.warning(f"压缩文件验证失败: {error_message}")
                         
@@ -282,7 +275,7 @@ class GoogleDriveMonitorSystem:
                             if correct_password:
                                 validation_result = self.archive_handler.validate_archive(download_path, correct_password, validate_data_format=True)
                                 if validation_result['is_valid']:
-                                    extract_status = "成功"
+                                    extract_status = "Success"
                                     file_count = validation_result['file_count']
                                     error_message = ""
                                     
@@ -294,22 +287,13 @@ class GoogleDriveMonitorSystem:
                                         validation_score = f"{data_validation_result.score:.1f}/100"
                                         if hasattr(data_validation_result, 'is_valid') and data_validation_result.is_valid:
                                             logger.success(f"使用密码解压成功，数据格式验证通过: {file_count} 个文件, 得分: {data_validation_result.score:.1f}/100")
-                                            extract_status = f"成功 (密码+数据验证: {data_validation_result.score:.1f}/100)"
+                                            extract_status = f"Success (Password + Data Validation: {data_validation_result.score:.1f}/100)"
                                         else:
                                             summary = getattr(data_validation_result, 'summary', 'Unknown validation issue')
                                             logger.warning(f"使用密码解压成功，但数据格式验证失败: {summary}")
-                                            extract_status = f"部分成功 (密码成功，数据格式问题)"
-                                            # 生成详细的错误信息
-                                            error_details = []
-                                            errors = getattr(data_validation_result, 'errors', [])
-                                            for error in errors[:3]:
-                                                if "Missing camera directory" in error:
-                                                    error_details.append("缺少camera目录（移动障碍物检测需要）")
-                                                elif "Missing" in error and "directory" in error:
-                                                    error_details.append(f"缺少目录: {error.split(': ')[1] if ': ' in error else error}")
-                                                else:
-                                                    error_details.append(error)
-                                            error_message = f"数据格式问题: {'; '.join(error_details)}"
+                                            extract_status = f"Partial Success (Password Success, Data Format Issues)"
+                                            # Generate standardized English error message
+                                            error_message = self._create_validation_error_message(data_validation_result)
                                     else:
                                         validation_score = "N/A (跳过验证)"
                                         logger.success(f"使用密码解压成功: {file_count} 个文件")
@@ -344,9 +328,9 @@ class GoogleDriveMonitorSystem:
                     depth_m = pcd_validation.get('depth_m', 0)
                     pcd_scale = f"{width_m:.1f}×{height_m:.1f}×{depth_m:.1f}m"
                 elif pcd_validation and pcd_validation.get('scale_status') == 'not_found':
-                    pcd_scale = '未找到PCD'
+                    pcd_scale = 'PCD Not Found'
                 else:
-                    pcd_scale = '解析失败'
+                    pcd_scale = 'Parse Failed'
             
             # 从data_validation_result中提取transient检测信息
             logger.debug(f"Debug: data_validation_result type = {type(data_validation_result)}")
@@ -419,10 +403,10 @@ class GoogleDriveMonitorSystem:
             }
             
             
-            if self.sheets_writer.append_record(sheets_record):
-                logger.success(f"已写入Sheets: {file_name}")
+            if self.sheets_writer.append_record_v2(sheets_record):
+                logger.success(f"Written to Sheets: {file_name}")
             else:
-                logger.warning(f"Sheets写入失败，但文件处理成功: {file_name}")
+                logger.warning(f"Sheets write failed, but file processed successfully: {file_name}")
             
             # 发送成功通知邮件
             if self.email_notifier and Config.NOTIFY_ON_SUCCESS:
@@ -457,7 +441,9 @@ class GoogleDriveMonitorSystem:
             
             self.stats['files_processed'] += 1
             process_time = (datetime.now() - process_start_time).total_seconds()
-            logger.success(f"文件处理完成: {file_name} (耗时 {process_time:.2f}s)")
+            from utils.error_formatter import ErrorFormatter
+            formatted_time = ErrorFormatter.format_duration_seconds(process_time)
+            logger.success(f"文件处理完成: {file_name} (耗时 {formatted_time})")
             
             return True
             
@@ -499,7 +485,7 @@ class GoogleDriveMonitorSystem:
                 'error_message': error_msg,
                 'notes': 'Processing failed'
             }
-            self.sheets_writer.append_record(sheets_record)
+            self.sheets_writer.append_record_v2(sheets_record)
             
             # 发送失败通知邮件
             if self.email_notifier and Config.NOTIFY_ON_ERROR:
@@ -585,6 +571,56 @@ class GoogleDriveMonitorSystem:
             log_error_with_context(e, {'phase': 'monitoring'})
         finally:
             self.shutdown()
+    
+    def _create_validation_error_message(self, data_validation_result) -> str:
+        """Create standardized English error message from validation result"""
+        try:
+            if not data_validation_result:
+                return ""
+            
+            # Extract validation summary if available
+            if hasattr(data_validation_result, 'summary'):
+                summary = data_validation_result.summary
+            elif isinstance(data_validation_result, dict):
+                summary = data_validation_result.get('summary', '')
+            else:
+                summary = str(data_validation_result)
+            
+            # Extract score information
+            score = None
+            if hasattr(data_validation_result, 'score'):
+                score = data_validation_result.score
+            elif isinstance(data_validation_result, dict):
+                score = data_validation_result.get('score')
+            
+            # Create a clean English error message
+            if score is not None:
+                if "Pipeline Validation:" in summary:
+                    # Parse the pipeline validation summary to create a cleaner message
+                    if "Basic(" in summary and "Transient(" in summary:
+                        try:
+                            # Extract scores from summary like "Pipeline Validation: Basic(19.0) + Transient(20.0) = 19.3/100 - FAIL"
+                            basic_match = summary.split("Basic(")[1].split(")")[0]
+                            transient_match = summary.split("Transient(")[1].split(")")[0]
+                            final_score = summary.split("= ")[1].split("/")[0]
+                            
+                            return f"Validation Failed: Basic Score {basic_match}/100, Transient Score {transient_match}/100, Overall {final_score}/100"
+                        except:
+                            return f"Validation Failed: Score {score:.1f}/100"
+                    else:
+                        return f"Validation Failed: Score {score:.1f}/100"
+                else:
+                    return f"Validation Issues: Score {score:.1f}/100"
+            else:
+                # Fallback for cases without score
+                if "FAIL" in summary:
+                    return "Validation Failed: Multiple validation issues detected"
+                else:
+                    return "Validation Issues: See details in logs"
+                    
+        except Exception as e:
+            logger.warning(f"Failed to create validation error message: {e}")
+            return "Validation Issues: Unable to parse validation details"
     
     def get_system_stats(self) -> Dict:
         """获取系统统计信息"""

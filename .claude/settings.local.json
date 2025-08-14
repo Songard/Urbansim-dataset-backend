@@ -9,6 +9,7 @@
       "Bash(dir temp)",
       "Bash(git reset:*)"
     ],
-    "deny": []
+    "deny": [],
+    "defaultMode": "acceptEdits"
   }
 }

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+from utils.error_formatter import ErrorFormatter
 
 
 @dataclass
@@ -350,7 +351,7 @@ class ProcessingOptimizer:
                 if hasattr(self.stats, key):
                     setattr(self.stats, key, value)
     
-    def get_performance_metrics(self) -> Dict[str, float]:
+    def get_performance_metrics(self) -> Dict[str, Union[float, str]]:
         """获取性能指标"""
         if self.stats.processing_time <= 0:
             return {"fps": 0.0, "frames_per_second": 0.0}
@@ -362,7 +363,9 @@ class ProcessingOptimizer:
             "detection_fps": self.stats.detection_frames / self.stats.processing_time,
             "segmentation_fps": self.stats.segmentation_frames / self.stats.processing_time,
             "total_processing_time": self.stats.processing_time,
-            "avg_time_per_frame": self.stats.processing_time / max(1, self.stats.frames_processed)
+            "total_processing_time_formatted": ErrorFormatter.format_duration_seconds(self.stats.processing_time),
+            "avg_time_per_frame": self.stats.processing_time / max(1, self.stats.frames_processed),
+            "avg_time_per_frame_formatted": ErrorFormatter.format_duration_seconds(self.stats.processing_time / max(1, self.stats.frames_processed))
         }
 
 
@@ -380,7 +383,7 @@ class EarlyTerminationManager:
         self.termination_thresholds = {
             "WDD": 8.0,
             "WPO": 8.0,
-            "SAI": 8.0
+            "SAI": 20.0  # 提高阈值，因为新SAI更敏感
         }
     
     def should_terminate(self, current_metrics: Dict[str, float], 

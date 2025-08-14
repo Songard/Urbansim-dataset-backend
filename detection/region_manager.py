@@ -188,13 +188,13 @@ class RegionManager:
         return False
     
     def is_large_detection_in_self_zone(self, bbox: Tuple[float, float, float, float], 
-                                       area_threshold: float = 0.05) -> bool:
+                                       area_threshold: float = 0.02) -> bool:
         """
-        检查是否是在自身入镜区域的大型检测
+        检查是否是在自身入镜区域的大型检测（降低阈值提高敏感度）
         
         Args:
             bbox: 边界框 (x1, y1, x2, y2)
-            area_threshold: 面积阈值（占画面比例）
+            area_threshold: 面积阈值（占画面比例，降低到2%）
             
         Returns:
             是否符合自身入镜条件
@@ -212,6 +212,53 @@ class RegionManager:
         area_ratio = bbox_area / image_area
         
         return area_ratio > area_threshold
+    
+    def calculate_self_appearance_score(self, bbox: Tuple[float, float, float, float]) -> float:
+        """
+        计算自身入镜得分（更细粒度的SAI计算）
+        
+        Args:
+            bbox: 边界框 (x1, y1, x2, y2)
+            
+        Returns:
+            自身入镜得分 (0.0-1.0)
+        """
+        x1, y1, x2, y2 = bbox
+        
+        # 计算检测框的基本属性
+        center_x = (x1 + x2) / 2
+        center_y = (y1 + y2) / 2
+        bbox_area = (x2 - x1) * (y2 - y1)
+        image_area = self.img_width * self.img_height
+        area_ratio = bbox_area / image_area
+        
+        # 初始得分
+        score = 0.0
+        
+        # 1. 位置得分：在画面下方得分更高
+        y_ratio = center_y / self.img_height
+        if y_ratio > 0.6:  # 下方60%区域
+            position_score = (y_ratio - 0.6) / 0.4  # 0.6-1.0映射到0-1
+            score += position_score * 0.4  # 位置权重40%
+        
+        # 2. 大小得分：适中大小得分更高
+        if area_ratio > 0.01:  # 至少1%画面
+            if area_ratio <= 0.15:  # 1%-15%为合理范围
+                size_score = min(area_ratio / 0.05, 1.0)  # 5%时达到满分
+            else:  # 超过15%开始降分
+                size_score = max(0.5, 1.0 - (area_ratio - 0.15) / 0.35)
+            score += size_score * 0.3  # 大小权重30%
+        
+        # 3. 中心性得分：靠近画面中央水平位置
+        x_center_distance = abs(center_x - self.img_width / 2) / (self.img_width / 2)
+        centrality_score = 1.0 - x_center_distance
+        score += centrality_score * 0.2  # 中心性权重20%
+        
+        # 4. 自身区域得分：在定义的自身区域内
+        if self._is_in_self_zone(center_x, center_y):
+            score += 0.1  # 自身区域额外10%
+        
+        return min(score, 1.0)  # 确保不超过1.0
     
     def get_region_info(self) -> Dict[str, Any]:
         """

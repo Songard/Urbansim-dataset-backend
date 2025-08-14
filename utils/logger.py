@@ -220,8 +220,10 @@ def log_system_shutdown():
 def log_performance(func_name: str, execution_time: float, **kwargs):
     """记录性能信息"""
     logger = get_logger('performance')
+    from utils.error_formatter import ErrorFormatter
+    formatted_time = ErrorFormatter.format_duration_seconds(execution_time)
     extra_info = ' '.join([f"{k}={v}" for k, v in kwargs.items()])
-    logger.info(f"{func_name} completed in {execution_time:.3f}s {extra_info}")
+    logger.info(f"{func_name} completed in {formatted_time} {extra_info}")
 
 def log_error_with_context(error: Exception, context: dict = None):
     """记录带上下文的错误信息"""

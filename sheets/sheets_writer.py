@@ -16,43 +16,52 @@ class SheetsWriter:
         self.service = None
         self.spreadsheet_id = Config.SPREADSHEET_ID
         self.sheet_name = Config.SHEET_NAME
-        # 使用标准化的headers定义
+        # Standardized headers - All English
         self.headers = [
-            'File ID', 'File Name', 'Upload Time', 'File Size', 'File Type',
-            'Extract Status', 'File Count', 'Process Time', 'Validation Score', 
-            'Start Time', 'Duration', 'Location', 'Scene Type', 'Size Status', 
-            'PCD Scale', 'Transient Detection', 'Weighted Detection Density', 'Weighted Person Occupancy', 'Scene Activity Index', 'Error Message', 'Notes'
+            'Entry ID', 'Validation Status', 'Validation Score', 'File ID', 'File Name', 'Upload Time', 'File Size', 'File Type',
+            'Extract Status', 'File Count', 'Process Time', 'Start Time', 'Duration', 'Location', 'Scene Type', 'Size Status', 
+            'PCD Scale', 'Transient Detection', 'Weighted Detection Density', 'Weighted Person Occupancy', 'Scene Activity Index', 'Error Message', 'Warning Message', 'Notes'
         ]
         
-        # 定义字段到headers的映射 - 这样添加新字段时更清晰
+        # Field mapping to headers - reorganized for better readability
         self.field_mapping = {
-            'file_id': 0, 'file_name': 1, 'upload_time': 2, 'file_size': 3, 'file_type': 4,
-            'extract_status': 5, 'file_count': 6, 'process_time': 7, 'validation_score': 8,
-            'start_time': 9, 'duration': 10, 'location': 11, 'scene_type': 12, 'size_status': 13,
-            'pcd_scale': 14, 'transient_decision': 15, 'wdd': 16, 'wpo': 17, 'sai': 18,
-            'error_message': 19, 'notes': 20
+            'entry_id': 0, 'validation_status': 1, 'validation_score': 2, 'file_id': 3, 'file_name': 4, 
+            'upload_time': 5, 'file_size': 6, 'file_type': 7, 'extract_status': 8, 'file_count': 9, 
+            'process_time': 10, 'start_time': 11, 'duration': 12, 'location': 13, 'scene_type': 14, 
+            'size_status': 15, 'pcd_scale': 16, 'transient_decision': 17, 'wdd': 18, 'wpo': 19, 
+            'sai': 20, 'error_message': 21, 'warning_message': 22, 'notes': 23
         }
         self._initialize_service()
     
     def prepare_record_row(self, record: Dict[str, Any]) -> List[Any]:
         """
-        将record转换为sheets行数据 - 统一的数据准备方法
+        Convert record to sheets row data - unified data preparation method
         
-        这个方法简化了数据准备流程，减少重复代码和出错机会
+        This method simplifies data preparation, reduces duplicate code and errors
         """
         from .data_mapper import SheetsDataMapper
         
-        # 使用统一的数据映射器
+        # Use unified data mapper
         normalized_record = SheetsDataMapper.map_validation_result(
             record.get('validation_result'), 
             record
         )
         
-        # 格式化时间字段
+        # Generate entry ID (sequential number)
+        entry_id = self._get_next_entry_id()
+        
+        # Generate validation status based on score and errors
+        validation_status = self._determine_validation_status(normalized_record)
+        
+        # Format time fields
         process_time = self._format_datetime(normalized_record.get('process_time'))
         
-        # 按照字段映射的顺序构建行数据
-        row_data = [''] * len(self.headers)  # 初始化空行
+        # Build row data according to field mapping order
+        row_data = [''] * len(self.headers)  # Initialize empty row
+        
+        # Add entry ID and validation status first
+        normalized_record['entry_id'] = entry_id
+        normalized_record['validation_status'] = validation_status
         
         for field, index in self.field_mapping.items():
             value = normalized_record.get(field, '')
@@ -60,6 +69,11 @@ class SheetsWriter:
                 value = process_time
             elif field == 'file_size' and value:
                 value = f"{int(value) / (1024*1024):.2f} MB"
+            elif field == 'duration' and value:
+                # Duration should already be formatted by data_mapper, but ensure it's not a raw number
+                if isinstance(value, (int, float)):
+                    from .data_mapper import SheetsDataMapper
+                    value = SheetsDataMapper._format_duration(value)
             row_data[index] = str(value) if value is not None else ''
         
         return row_data
@@ -82,7 +96,7 @@ class SheetsWriter:
             if not self._verify_and_get_sheet_name():
                 return False
             
-            range_name = f"'{self.sheet_name}'!A1:U1"
+            range_name = f"'{self.sheet_name}'!A1:X1"
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.spreadsheet_id,
                 range=range_name
@@ -150,7 +164,7 @@ class SheetsWriter:
                 logger.info(f"Using first sheet: '{self.sheet_name}'")
                 
                 # Try again with proper sheet name
-                range_name = f"'{self.sheet_name}'!A1:U1"
+                range_name = f"'{self.sheet_name}'!A1:X1"
                 result = self.service.spreadsheets().values().get(
                     spreadsheetId=self.spreadsheet_id,
                     range=range_name
@@ -171,7 +185,7 @@ class SheetsWriter:
             
     def _create_headers(self):
         try:
-            range_name = f"'{self.sheet_name}'!A1:U1"
+            range_name = f"'{self.sheet_name}'!A1:X1"
             body = {
                 'values': [self.headers]
             }
@@ -228,8 +242,8 @@ class SheetsWriter:
             return
             
         try:
-            # Duration is column K (index 10, 0-based)
-            duration_column = 10
+            # Duration is column M (index 12, 0-based) - shifted due to Entry ID and Validation Status
+            duration_column = 12
             
             # Define colors based on status
             colors = {
@@ -295,8 +309,8 @@ class SheetsWriter:
             return
             
         try:
-            # Size Status is column N (index 13, 0-based)
-            size_status_column = 13
+            # Size Status is column P (index 15, 0-based) - shifted due to Entry ID and Validation Status
+            size_status_column = 15
             
             # Define colors based on size status
             colors = {
@@ -362,8 +376,8 @@ class SheetsWriter:
             return
             
         try:
-            # PCD Scale is column O (index 14, 0-based)
-            pcd_scale_column = 14
+            # PCD Scale is column Q (index 16, 0-based) - shifted due to Entry ID and Validation Status
+            pcd_scale_column = 16
             
             # Define colors based on PCD scale status
             colors = {
@@ -432,8 +446,8 @@ class SheetsWriter:
             return
             
         try:
-            # Transient Detection is column P (index 15, 0-based)
-            transient_column = 15
+            # Transient Detection is column R (index 17, 0-based) - shifted due to Entry ID and Validation Status
+            transient_column = 17
             
             # Define colors based on detection decision
             colors = {
@@ -490,6 +504,74 @@ class SheetsWriter:
             
         except Exception as e:
             logger.warning(f"Failed to format transient detection cell for row {row_number}: {e}")
+    
+    def _format_validation_status_cell(self, row_number: int, validation_status: str):
+        """Apply color formatting to Validation Status cell based on status"""
+        if not validation_status:
+            return
+            
+        try:
+            # Validation Status is column B (index 1, 0-based)
+            validation_status_column = 1
+            
+            # Define colors based on validation status
+            colors = {
+                'PASSED': {'red': 0.85, 'green': 0.95, 'blue': 0.85},      # Light green
+                'WARNING': {'red': 1.0, 'green': 0.95, 'blue': 0.8},      # Light yellow
+                'NEEDS_REVIEW': {'red': 1.0, 'green': 0.9, 'blue': 0.8},  # Light orange
+                'FAILED': {'red': 1.0, 'green': 0.85, 'blue': 0.85},      # Light red
+                'PENDING': {'red': 0.95, 'green': 0.95, 'blue': 1.0},     # Light blue
+                'UNKNOWN': {'red': 0.9, 'green': 0.9, 'blue': 0.9}        # Light gray
+            }
+            
+            background_color = colors.get(validation_status, colors['UNKNOWN'])
+            
+            # Get sheet ID for formatting
+            spreadsheet = self.service.spreadsheets().get(
+                spreadsheetId=self.spreadsheet_id
+            ).execute()
+            
+            sheet_id = None
+            for sheet in spreadsheet.get('sheets', []):
+                if sheet['properties']['title'] == self.sheet_name:
+                    sheet_id = sheet['properties']['sheetId']
+                    break
+            
+            if sheet_id is None:
+                logger.warning(f"Could not find sheet ID for '{self.sheet_name}'")
+                return
+            
+            requests = [
+                {
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': row_number - 1,  # 0-based
+                            'endRowIndex': row_number,
+                            'startColumnIndex': validation_status_column,
+                            'endColumnIndex': validation_status_column + 1
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'backgroundColor': background_color,
+                                'textFormat': {'bold': True}
+                            }
+                        },
+                        'fields': 'userEnteredFormat(backgroundColor,textFormat)'
+                    }
+                }
+            ]
+            
+            body = {'requests': requests}
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body=body
+            ).execute()
+            
+            logger.debug(f"Applied {validation_status} formatting to row {row_number}, column {validation_status_column}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to format validation status cell for row {row_number}: {e}")
             
     def _get_next_empty_row(self) -> int:
         try:
@@ -505,10 +587,55 @@ class SheetsWriter:
         except Exception as e:
             logger.error(f"Failed to get next empty row: {e}")
             return 2
+    
+    def _get_next_entry_id(self) -> str:
+        """Generate sequential entry ID for data records"""
+        try:
+            next_row = self._get_next_empty_row()
+            # Entry ID starts from 1, header is row 1, so data starts from row 2
+            entry_id = next_row - 1  # Row 2 = Entry ID 1
+            return f"E{entry_id:04d}"  # Format: E0001, E0002, etc.
+        except Exception as e:
+            logger.warning(f"Failed to generate entry ID: {e}")
+            return f"E{int(time.time()) % 10000:04d}"  # Fallback to timestamp-based ID
+    
+    def _determine_validation_status(self, record: Dict[str, Any]) -> str:
+        """Determine overall validation status based on score and errors"""
+        try:
+            # Extract validation score
+            validation_score_str = record.get('validation_score', '0')
+            if isinstance(validation_score_str, str) and '/' in validation_score_str:
+                score = float(validation_score_str.split('/')[0])
+            else:
+                score = float(validation_score_str) if validation_score_str else 0
+            
+            # Check for errors
+            error_message = record.get('error_message', '')
+            has_errors = bool(error_message and error_message != 'N/A')
+            
+            # Check extract status
+            extract_status = record.get('extract_status', '')
+            extract_failed = 'Failed' in extract_status or 'failed' in extract_status
+            
+            # Determine status based on criteria
+            if extract_failed or has_errors:
+                return 'FAILED'
+            elif score >= 80:
+                return 'PASSED'
+            elif score >= 60:
+                return 'WARNING'
+            elif score > 0:
+                return 'NEEDS_REVIEW'
+            else:
+                return 'PENDING'
+                
+        except Exception as e:
+            logger.warning(f"Failed to determine validation status: {e}")
+            return 'UNKNOWN'
             
     def _format_file_size(self, size_bytes: int) -> str:
         if size_bytes is None:
-            return "未知"
+            return "Unknown"
         
         size_mb = size_bytes / (1024 * 1024)
         return f"{size_mb:.2f} MB"
@@ -526,8 +653,8 @@ class SheetsWriter:
             
     def append_record_v2(self, record: Dict[str, Any]) -> bool:
         """
-        新版本的append_record - 使用统一的数据映射器
-        推荐使用这个方法来避免数据传递错误
+        Enhanced append_record - uses unified data mapper with English output
+        Recommended method to avoid data transfer errors
         """
         max_retries = Config.MAX_RETRY_ATTEMPTS
         
@@ -537,9 +664,9 @@ class SheetsWriter:
                     return False
                     
                 next_row = self._get_next_empty_row()
-                range_name = f"'{self.sheet_name}'!A{next_row}:U{next_row}"
+                range_name = f"'{self.sheet_name}'!A{next_row}:X{next_row}"
                 
-                # 使用统一的数据准备方法
+                # Use unified data preparation method
                 formatted_record = self.prepare_record_row(record)
                 
                 body = {
@@ -553,6 +680,51 @@ class SheetsWriter:
                     insertDataOption='INSERT_ROWS',
                     body=body
                 ).execute()
+                
+                # Apply validation status formatting
+                if len(formatted_record) > 1:  # Ensure we have validation status
+                    validation_status = formatted_record[1]  # Column B (index 1)
+                    self._format_validation_status_cell(next_row, validation_status)
+                
+                # Apply other status formatting
+                validation_result = record.get('validation_result') or {}
+                
+                # Handle ValidationResult object
+                if hasattr(validation_result, 'metadata'):
+                    metadata = validation_result.metadata or {}
+                elif isinstance(validation_result, dict):
+                    metadata = validation_result.get('metadata', {})
+                else:
+                    metadata = {}
+                    
+                extracted_metadata = metadata.get('extracted_metadata', {})
+                
+                # Duration formatting
+                duration_status = extracted_metadata.get('duration_status')
+                if duration_status:
+                    self._format_duration_cell(next_row, duration_status)
+                
+                # Size status formatting
+                size_status_level = record.get('size_status_level')
+                if size_status_level:
+                    self._format_size_status_cell(next_row, size_status_level)
+                
+                # PCD scale formatting
+                pcd_scale_status = record.get('pcd_scale_status')
+                if pcd_scale_status:
+                    self._format_pcd_scale_cell(next_row, pcd_scale_status)
+                
+                # Transient detection formatting
+                transient_decision = record.get('transient_decision', '')
+                if not transient_decision and validation_result:
+                    # Extract from validation result if not directly provided
+                    transient_validation = metadata.get('transient_validation', {})
+                    transient_data = transient_validation.get('transient_detection', {})
+                    if transient_data:
+                        transient_decision = transient_data.get('decision', '')
+                
+                if transient_decision:
+                    self._format_transient_detection_cell(next_row, transient_decision)
                 
                 logger.info(f"Successfully wrote record to row {next_row}: {record.get('file_name', 'Unknown')}")
                 return True
@@ -579,166 +751,17 @@ class SheetsWriter:
         return False
 
     def append_record(self, record: Dict[str, Any]) -> bool:
-        max_retries = Config.MAX_RETRY_ATTEMPTS
-        
-        for attempt in range(max_retries):
-            try:
-                if not self._get_or_create_headers():
-                    return False
-                    
-                next_row = self._get_next_empty_row()
-                range_name = f"'{self.sheet_name}'!A{next_row}:U{next_row}"
-                
-                # Extract metadata information if available
-                validation_result = record.get('validation_result') or {}
-                
-                # Handle ValidationResult object
-                if hasattr(validation_result, 'metadata'):
-                    # ValidationResult object
-                    metadata = validation_result.metadata or {}
-                elif isinstance(validation_result, dict):
-                    # Dictionary format
-                    metadata = validation_result.get('metadata', {})
-                else:
-                    # Invalid type, default to empty
-                    metadata = {}
-                    
-                extracted_metadata = metadata.get('extracted_metadata', {})
-                
-                # Format location as coordinate pair
-                location_str = ""
-                if extracted_metadata.get('location'):
-                    lat = extracted_metadata['location'].get('latitude', '')
-                    lon = extracted_metadata['location'].get('longitude', '')
-                    if lat and lon:
-                        location_str = f"{lat}, {lon}"
-                
-                # Format duration to prevent auto-conversion to time format
-                duration_raw = extracted_metadata.get('duration', '')
-                duration_formatted = f"'{duration_raw}" if duration_raw else ''  # Prefix with ' to force text format
-                
-                # 获取场景类型、大小状态和PCD尺度信息
-                scene_type = record.get('scene_type', '')
-                size_status = record.get('size_status', '')
-                pcd_scale = record.get('pcd_scale', '')
-                
-                # ===== TRANSIENT检测数据提取契约 =====
-                # 数据来源优先级：
-                # 1. main.py准备的直接字段（推荐）
-                # 2. validation_result.metadata中的原始数据（fallback）
-                #
-                # 数据路径契约：metadata.transient_validation.transient_detection
-                # 必须包含：decision, metrics.WDD, metrics.WPO, metrics.SAI
-                
-                transient_detection = record.get('transient_decision', '')
-                wdd_value = record.get('wdd', '')
-                wpo_value = record.get('wpo', '')
-                sai_value = record.get('sai', '')
-                
-                # Fallback：如果main.py中没有提供这些字段，从validation_result中提取
-                if not transient_detection and not wdd_value and validation_result:
-                    # 获取metadata（支持字典和对象两种格式）
-                    if hasattr(validation_result, 'metadata'):
-                        metadata = validation_result.metadata or {}
-                    elif isinstance(validation_result, dict):
-                        metadata = validation_result.get('metadata', {})
-                    else:
-                        metadata = {}
-                    
-                    # 遵循标准数据路径：metadata.transient_validation.transient_detection
-                    transient_validation = metadata.get('transient_validation', {})
-                    transient_data = transient_validation.get('transient_detection', {})
-                    if transient_data:
-                        # 提取决策（必须来自ValidationDecisionContract）
-                        transient_detection = transient_data.get('decision', '')
-                        
-                        # 提取指标（遵循标准格式化）
-                        transient_metrics = transient_data.get('metrics', {})
-                        wdd_value = f"{transient_metrics.get('WDD', 0):.3f}" if 'WDD' in transient_metrics else ""
-                        wpo_value = f"{transient_metrics.get('WPO', 0):.1f}%" if 'WPO' in transient_metrics else ""
-                        sai_value = f"{transient_metrics.get('SAI', 0):.1f}%" if 'SAI' in transient_metrics else ""
-                
-                formatted_record = [
-                    record.get('file_id', ''),
-                    record.get('file_name', ''),
-                    self._format_datetime(record.get('upload_time')),
-                    self._format_file_size(record.get('file_size')),
-                    record.get('file_type', ''),
-                    record.get('extract_status', '不适用'),
-                    record.get('file_count', ''),
-                    self._format_datetime(record.get('process_time', datetime.now())),
-                    record.get('validation_score', ''),
-                    extracted_metadata.get('start_time', ''),
-                    duration_formatted,  # Use formatted duration
-                    location_str,
-                    scene_type,  # Scene Type column
-                    size_status,  # Size Status column
-                    pcd_scale,   # PCD Scale column
-                    transient_detection,  # Transient Detection column
-                    wdd_value,  # WDD column
-                    wpo_value,  # WPO column
-                    sai_value,  # SAI column
-                    record.get('error_message', ''),
-                    record.get('notes', '')
-                ]
-                
-                body = {
-                    'values': [formatted_record]
-                }
-                
-                result = self.service.spreadsheets().values().append(
-                    spreadsheetId=self.spreadsheet_id,
-                    range=range_name,
-                    valueInputOption='USER_ENTERED',
-                    insertDataOption='INSERT_ROWS',
-                    body=body
-                ).execute()
-                
-                # Apply duration status formatting if available
-                duration_status = extracted_metadata.get('duration_status')
-                if duration_status:
-                    self._format_duration_cell(next_row, duration_status)
-                
-                # Apply size status formatting if available
-                size_status_level = record.get('size_status_level')
-                if size_status_level:
-                    self._format_size_status_cell(next_row, size_status_level)
-                
-                # Apply PCD scale formatting if available  
-                pcd_scale_status = record.get('pcd_scale_status')
-                if pcd_scale_status:
-                    self._format_pcd_scale_cell(next_row, pcd_scale_status)
-                
-                # Apply transient detection formatting if available
-                if transient_detection:
-                    self._format_transient_detection_cell(next_row, transient_detection)
-                
-                logger.info(f"Successfully wrote record to row {next_row}: {record.get('file_name', 'Unknown')}")
-                return True
-                
-            except HttpError as e:
-                if e.resp.status in [429, 500, 502, 503, 504] and attempt < max_retries - 1:
-                    wait_time = (2 ** attempt) + (attempt * 0.1)
-                    logger.warning(f"HTTP error {e.resp.status}, retrying in {wait_time:.1f}s (attempt {attempt + 1}/{max_retries})")
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    logger.error(f"Failed to append record after {attempt + 1} attempts: {e}")
-                    return False
-                    
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    wait_time = Config.RETRY_DELAY * (attempt + 1)
-                    logger.warning(f"Error writing to sheet, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries}): {e}")
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    logger.error(f"Failed to append record after {max_retries} attempts: {e}")
-                    return False
-                    
-        return False
+        """
+        Legacy append_record method - redirects to append_record_v2
+        for backward compatibility
+        """
+        logger.warning("Using legacy append_record method. Consider switching to append_record_v2 for better formatting.")
+        return self.append_record_v2(record)
         
     def batch_append_records(self, records: List[Dict[str, Any]]) -> bool:
+        """
+        Enhanced batch append - uses unified data mapper with English output
+        """
         if not records:
             return True
             
@@ -756,83 +779,11 @@ class SheetsWriter:
                     
                     formatted_records = []
                     for record in batch:
-                        # Extract metadata information if available
-                        validation_result = record.get('validation_result') or {}
-                        
-                        # Handle ValidationResult object
-                        if hasattr(validation_result, 'metadata'):
-                            # ValidationResult object
-                            metadata = validation_result.metadata or {}
-                        elif isinstance(validation_result, dict):
-                            # Dictionary format
-                            metadata = validation_result.get('metadata', {})
-                        else:
-                            # Invalid type, default to empty
-                            metadata = {}
-                            
-                        extracted_metadata = metadata.get('extracted_metadata', {})
-                        
-                        # Format location as coordinate pair
-                        location_str = ""
-                        if extracted_metadata.get('location'):
-                            lat = extracted_metadata['location'].get('latitude', '')
-                            lon = extracted_metadata['location'].get('longitude', '')
-                            if lat and lon:
-                                location_str = f"{lat}, {lon}"
-                        
-                        # Format duration to prevent auto-conversion to time format
-                        duration_raw = extracted_metadata.get('duration', '')
-                        duration_formatted = f"'{duration_raw}" if duration_raw else ''
-                        
-                        # 获取场景类型、大小状态和PCD尺度信息
-                        scene_type = record.get('scene_type', '')
-                        size_status = record.get('size_status', '')
-                        pcd_scale = record.get('pcd_scale', '')
-                        
-                        # 提取移动障碍物检测结果
-                        transient_detection = record.get('transient_decision', '')
-                        wdd_value = record.get('wdd', '')
-                        wpo_value = record.get('wpo', '')
-                        sai_value = record.get('sai', '')
-                        
-                        # 如果main.py中没有提供这些字段，尝试从validation_result中提取
-                        if not transient_detection and not wdd_value:
-                            # 修正数据路径：transient_validation -> transient_detection
-                            transient_validation = metadata.get('transient_validation', {})
-                            transient_data = transient_validation.get('transient_detection', {})
-                            if transient_data:
-                                transient_detection = transient_data.get('decision', '')
-                                transient_metrics = transient_data.get('metrics', {})
-                                wdd_value = f"{transient_metrics.get('WDD', 0):.3f}" if 'WDD' in transient_metrics else ""
-                                wpo_value = f"{transient_metrics.get('WPO', 0):.1f}%" if 'WPO' in transient_metrics else ""
-                                sai_value = f"{transient_metrics.get('SAI', 0):.1f}%" if 'SAI' in transient_metrics else ""
-                        
-                        formatted_record = [
-                            record.get('file_id', ''),
-                            record.get('file_name', ''),
-                            self._format_datetime(record.get('upload_time')),
-                            self._format_file_size(record.get('file_size')),
-                            record.get('file_type', ''),
-                            record.get('extract_status', '不适用'),
-                            record.get('file_count', ''),
-                            self._format_datetime(record.get('process_time', datetime.now())),
-                            record.get('validation_score', ''),
-                            extracted_metadata.get('start_time', ''),
-                            duration_formatted,  # Use formatted duration
-                            location_str,
-                            scene_type,  # Scene Type column
-                            size_status,  # Size Status column
-                            pcd_scale,   # PCD Scale column
-                            transient_detection,  # Transient Detection column
-                            wdd_value,  # WDD column
-                            wpo_value,  # WPO column
-                            sai_value,  # SAI column
-                            record.get('error_message', ''),
-                            record.get('notes', '')
-                        ]
+                        # Use unified data preparation method
+                        formatted_record = self.prepare_record_row(record)
                         formatted_records.append(formatted_record)
                     
-                    range_name = f"'{self.sheet_name}'!A{next_row}:U{next_row + len(batch) - 1}"
+                    range_name = f"'{self.sheet_name}'!A{next_row}:X{next_row + len(batch) - 1}"
                     body = {
                         'values': formatted_records
                     }
@@ -846,7 +797,13 @@ class SheetsWriter:
                     ).execute()
                     
                     # Apply status formatting for batch
-                    for j, record in enumerate(batch):
+                    for j, (record, formatted_record) in enumerate(zip(batch, formatted_records)):
+                        # Apply validation status formatting (Column B, index 1)
+                        if len(formatted_record) > 1:
+                            validation_status = formatted_record[1]
+                            self._format_validation_status_cell(next_row + j, validation_status)
+                        
+                        # Apply other status formatting
                         validation_result = record.get('validation_result') or {}
                         
                         # Handle ValidationResult object
