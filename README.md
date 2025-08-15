@@ -1,110 +1,422 @@
-# Google Drive 文件监控器
+# MetaCam Data Processing System
 
-一个用于监控 Google Drive 文件夹并自动处理上传文件的 Python 应用程序。
+An automated system for monitoring Google Drive uploads, processing MetaCam 3D reconstruction data packages, and performing comprehensive data validation with real-time results tracking in Google Sheets.
 
-## 功能特性
+## System Overview
 
-- 实时监控指定的 Google Drive 文件夹
-- 自动下载新上传的文件
-- 支持多种文件类型（PDF、DOCX、TXT、JPG、PNG）
-- 文件大小限制和类型过滤
-- 避免重复处理已下载的文件
-- 可配置的轮询间隔
-- 详细的日志记录
+This system provides end-to-end processing of MetaCam data packages from Google Drive upload to validated data analysis, featuring:
 
-## 安装要求
+- **Automated Google Drive Monitoring**: Real-time detection of new data uploads
+- **Comprehensive Data Validation**: Multi-stage validation pipeline ensuring data quality
+- **AI-Powered Quality Assessment**: YOLO11-based transient object detection
+- **Real-time Results Tracking**: Automated Google Sheets integration with detailed metrics
+- **Email Notifications**: Optional alerts for processing status and system health
+- **Robust Error Handling**: Detailed error reporting and graceful failure recovery
 
-- Python 3.7+
-- Google Drive API 访问权限
+## Architecture
 
-## 安装步骤
+### Core Components
 
-1. 克隆或下载项目文件
-2. 安装依赖：
+```
+MetaCam Data Processing System
+├── 📁 Main System (main.py)
+│   ├── Google Drive Monitor
+│   ├── File Downloader  
+│   ├── Archive Handler
+│   └── Results Tracker
+├── 📁 Validation Pipeline
+│   ├── MetaCam Format Validator
+│   ├── Transient Object Detector
+│   └── Quality Metrics Calculator
+├── 📁 Data Output
+│   ├── Google Sheets Writer
+│   ├── Error Formatter
+│   └── Email Notifier
+└── 📁 Configuration
+    ├── Environment Settings
+    ├── Data Schemas
+    └── Logging System
+```
+
+### Data Flow
+
+```
+Google Drive Upload → Download → Extract → Validate → Analyze → Report
+                                     ↓
+                            [MetaCam Validator]
+                                     ↓
+                            [Transient Detector] 
+                                     ↓
+                            [Quality Assessment]
+                                     ↓
+                            [Google Sheets Update]
+```
+
+## Features
+
+### 🔄 Automated Processing
+- **Continuous Monitoring**: Real-time Google Drive folder monitoring
+- **Smart Download Management**: Optimized chunked downloads with retry logic
+- **Archive Processing**: Support for multiple compression formats (.zip, .rar, .7z, etc.)
+- **Password Handling**: Automatic password attempts for protected archives
+
+### 🔍 Advanced Validation
+- **Schema Validation**: MetaCam data package structure verification
+- **File Integrity Checks**: Size, format, and content validation
+- **Duration Analysis**: Recording time validation with optimal range detection
+- **Point Cloud Scale Validation**: Spatial scale analysis for reconstruction quality
+- **Device Information Extraction**: Automatic device ID generation from metadata
+
+### 🤖 AI-Powered Quality Control
+- **Transient Object Detection**: YOLO11-based moving obstacle identification
+- **Scene Activity Analysis**: Automated calculation of quality metrics (WDD, WPO, SAI)
+- **Smart Decision Making**: Pass/Review/Reject recommendations based on AI analysis
+- **Adaptive Processing**: Flexible sampling rates for different dataset sizes
+
+### 📊 Real-time Reporting
+- **Google Sheets Integration**: Automatic results upload with color-coded status
+- **Detailed Metrics**: Duration, file size, validation scores, and quality indicators
+- **Error Categorization**: Clear, actionable error messages for easy troubleshooting
+- **Progress Tracking**: Complete processing history with timestamps
+
+### 💬 Communication & Alerting
+- **Email Notifications**: Configurable alerts for processing events and system status
+- **Detailed Logging**: Comprehensive system logs with multiple verbosity levels
+- **Status Monitoring**: Real-time system health and performance metrics
+
+## Installation
+
+### Prerequisites
+
+- **Python 3.8+**
+- **Google Cloud Project** with Drive API and Sheets API enabled
+- **Service Account** with appropriate permissions
+- **YOLO Models** (automatically downloaded on first use)
+
+### Setup Steps
+
+1. **Clone the Repository**
+   ```bash
+   git clone <repository-url>
+   cd Urbansim
+   ```
+
+2. **Install Dependencies**
    ```bash
    pip install -r requirements.txt
    ```
 
-3. 设置 Google Drive API：
-   - 访问 [Google Cloud Console](https://console.cloud.google.com/)
-   - 创建新项目或选择现有项目
-   - 启用 Google Drive API
-   - 创建服务账号密钥或 OAuth 2.0 客户端 ID
-   - 下载 `credentials.json` 文件到项目根目录
+3. **Configure Google Cloud APIs**
+   - Create a Google Cloud Project
+   - Enable Google Drive API and Google Sheets API
+   - Create a Service Account
+   - Download the service account JSON key as `service-account.json`
+   - Grant the service account access to your target Drive folder and Google Sheet
 
-4. 配置环境变量：
-   - 复制 `.env.example` 为 `.env`
-   - 填写必要的配置信息
-
-## 配置说明
-
-### 环境变量
-
-在 `.env` 文件中配置以下变量：
-
-- `MONITORED_FOLDER_ID`: 要监控的 Google Drive 文件夹 ID
-- `POLLING_INTERVAL`: 轮询间隔（秒），默认 60 秒
-- `DOWNLOAD_DIRECTORY`: 下载文件保存目录，默认 `./downloads`
-- `SUPPORTED_FILE_TYPES`: 支持的文件类型，用逗号分隔
-- `MAX_FILE_SIZE_MB`: 最大文件大小（MB），默认 100MB
-- `LOG_LEVEL`: 日志级别，默认 INFO
-
-### 获取文件夹 ID
-
-1. 在浏览器中打开目标 Google Drive 文件夹
-2. 从 URL 中复制文件夹 ID
-   ```
-   https://drive.google.com/drive/folders/1ABC123DEF456GHI789JKL
-   文件夹 ID: 1ABC123DEF456GHI789JKL
+4. **Configure Environment**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your configuration
    ```
 
-## 使用方法
+5. **Set Up Directory Structure**
+   ```bash
+   mkdir -p downloads processed temp logs
+   ```
 
-1. 确保完成所有配置步骤
-2. 运行应用程序：
+## Configuration
+
+### Environment Variables
+
+Create a `.env` file with the following configuration:
+
+```bash
+# Google API Configuration
+DRIVE_FOLDER_ID=your_google_drive_folder_id
+SPREADSHEET_ID=your_google_sheets_id
+SERVICE_ACCOUNT_FILE=service-account.json
+
+# Monitoring Settings
+CHECK_INTERVAL=30                    # Check interval in seconds
+ENABLE_MONITORING=True               # Enable continuous monitoring
+MAX_CONCURRENT_DOWNLOADS=3           # Concurrent download limit
+
+# File Processing
+DOWNLOAD_PATH=./downloads            # Downloaded files directory
+PROCESSED_PATH=./processed           # Processed files archive
+TEMP_DIR=./temp                      # Temporary processing directory
+MAX_FILE_SIZE_MB=500                 # Maximum file size limit
+ALLOWED_EXTENSIONS=.zip,.rar,.7z     # Supported archive formats
+DEFAULT_PASSWORDS=123456,password    # Default passwords for archives
+
+# Download Optimization
+DOWNLOAD_CHUNK_SIZE_MB=32            # Download chunk size
+DOWNLOAD_TIMEOUT=300                 # Download timeout (seconds)
+DOWNLOAD_RETRIES=3                   # Maximum retry attempts
+
+# Logging
+LOG_LEVEL=INFO                       # Logging level (DEBUG, INFO, WARNING, ERROR)
+LOG_FILE=logs/monitor.log            # Log file path
+LOG_MAX_SIZE=10485760               # Max log file size (10MB)
+LOG_BACKUP_COUNT=5                   # Number of backup log files
+
+# Google Sheets
+SHEET_NAME=Sheet1                    # Target sheet name
+BATCH_WRITE_SIZE=10                  # Batch size for sheet updates
+
+# Email Notifications (Optional)
+ENABLE_EMAIL_NOTIFICATIONS=False     # Enable email alerts
+SMTP_SERVER=smtp.gmail.com           # SMTP server
+SMTP_PORT=587                        # SMTP port
+EMAIL_USERNAME=your_email@gmail.com  # Sender email
+EMAIL_PASSWORD=your_app_password     # Email password/app password
+NOTIFICATION_RECIPIENTS=admin@company.com  # Recipient emails
+```
+
+### Google Drive Setup
+
+1. **Get Folder ID**:
+   - Open the target Google Drive folder in your browser
+   - Copy the folder ID from the URL: 
+     ```
+     https://drive.google.com/drive/folders/1ABC123DEF456GHI789JKL
+     Folder ID: 1ABC123DEF456GHI789JKL
+     ```
+
+2. **Share Folder**: Grant your service account email "Viewer" access to the Drive folder
+
+3. **Prepare Google Sheet**: Create a Google Sheet and grant your service account "Editor" access
+
+## Usage
+
+### Basic Usage
+
+1. **Start the System**
    ```bash
    python main.py
    ```
-3. 首次运行时会打开浏览器进行 Google 账号授权
-4. 程序将开始监控指定文件夹并处理新文件
 
-## 文件结构
+2. **Monitor Processing**: The system will:
+   - Monitor the specified Google Drive folder
+   - Automatically download new files
+   - Process and validate data packages
+   - Update Google Sheets with results
+   - Send notifications (if configured)
 
-```
-├── main.py              # 主程序文件
-├── config.py            # 配置文件
-├── requirements.txt     # 依赖列表
-├── .env.example         # 环境变量示例
-├── .gitignore          # Git 忽略文件
-├── README.md           # 项目说明
-├── credentials.json    # Google API 凭证（需自行添加）
-└── downloads/          # 下载文件目录（自动创建）
-```
+### Command Line Options
 
-## 自定义文件处理
+```bash
+python main.py [options]
 
-可以修改 `main.py` 中的 `process_file` 方法来自定义文件处理逻辑：
-
-```python
-def process_file(self, file, file_path):
-    # 在这里添加自定义处理逻辑
-    pass
+Options:
+  --once              Run once and exit (no continuous monitoring)
+  --config FILE       Use custom configuration file
+  --log-level LEVEL   Set logging level (DEBUG, INFO, WARNING, ERROR)
+  --test-connection   Test Google API connections and exit
 ```
 
-## 注意事项
+### Manual Processing
 
-- 确保 Google Drive API 配额足够
-- 大文件下载可能需要较长时间
-- 程序会记录已处理的文件以避免重复处理
-- 建议在生产环境中使用服务账号而非个人账号
+```bash
+# Process a specific file
+python main.py --file /path/to/archive.zip
 
-## 故障排除
+# Test validation only
+python -m validation.manager /path/to/extracted/data
 
-1. **认证失败**：检查 `credentials.json` 文件是否正确
-2. **文件夹访问被拒绝**：确保账号有访问目标文件夹的权限
-3. **下载失败**：检查网络连接和文件权限
-4. **配置错误**：验证 `.env` 文件中的所有必需配置项
+# Check system connectivity
+python main.py --test-connection
+```
 
-## 许可证
+## Data Validation
 
-本项目仅供学习和研究使用。
+The system performs comprehensive validation of MetaCam data packages. For detailed information about validation checks and requirements, see [Validation Documentation](validation/VALIDATION_CHECKS.md).
+
+### Quick Validation Overview
+
+| Validation Type | Purpose | Fail Conditions |
+|----------------|---------|-----------------|
+| **File Structure** | Ensures required directories and files exist | Missing critical files/folders |
+| **Metadata** | Validates recording information and duration | Invalid duration (<3min or >9min) |
+| **Point Cloud Scale** | Verifies spatial scale for reconstruction | Scale outside acceptable range |
+| **Transient Detection** | AI analysis for moving obstacles | High obstacle density (configurable) |
+| **Device Information** | Extracts and validates device metadata | Missing device info |
+
+### Validation Results
+
+The system provides color-coded validation results in Google Sheets:
+
+- 🟢 **Green**: Validation passed, data ready for processing
+- 🟡 **Yellow**: Warnings detected, manual review recommended  
+- 🔴 **Red**: Critical errors, data rejected
+- ⚪ **Gray**: Processing incomplete or unknown status
+
+## Google Sheets Output
+
+The system automatically updates a Google Sheet with the following information:
+
+| Column | Description | Color Coding |
+|--------|-------------|--------------|
+| Entry ID | Unique identifier | - |
+| Validation Status | Overall status | Pass/Warning/Error |
+| Validation Score | Combined quality score (0-100) | Gradient |
+| File ID | Google Drive file identifier | - |
+| File Name | Original filename | - |
+| Upload Time | When file was uploaded to Drive | - |
+| Device ID | Extracted device identifier | - |
+| File Size | Archive size in MB | - |
+| File Type | Archive format | - |
+| Extract Status | Extraction result | Success/Failed |
+| File Count | Number of extracted files | - |
+| Process Time | When processing occurred | - |
+| Start Time | Recording start time | - |
+| Duration | Recording duration | Optimal/Warning/Error |
+| Location | GPS coordinates | - |
+| Scene Type | Detected scene type | - |
+| Size Status | Point cloud scale status | Optimal/Warning/Error |
+| PCD Scale | Spatial dimensions | Color-coded by range |
+| Transient Detection | AI analysis result | Pass/Review/Reject |
+| WDD | Weighted Detection Density | Metric value |
+| WPO | Weighted Person Occupancy | Percentage |
+| SAI | Scene Activity Index | Activity level |
+| Error Message | Specific error details | - |
+| Warning Message | Warning details | - |
+| Notes | Additional information | - |
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Authentication Errors**
+   - Verify `service-account.json` file exists and is valid
+   - Check service account permissions for Drive folder and Sheet
+   - Ensure APIs are enabled in Google Cloud Console
+
+2. **Download Failures**
+   - Check internet connectivity
+   - Verify file permissions in Google Drive
+   - Increase timeout settings for large files
+
+3. **Validation Failures**
+   - Review validation error messages in Google Sheets
+   - Check data package structure against MetaCam schema
+   - Verify file formats and sizes
+
+4. **Processing Errors**
+   - Check available disk space
+   - Verify archive passwords are correct
+   - Review system logs for detailed error information
+
+### Log Analysis
+
+System logs are located in the `logs/` directory:
+
+```bash
+# View recent activity
+tail -f logs/monitor.log
+
+# Search for errors
+grep "ERROR" logs/monitor.log
+
+# Filter specific processing
+grep "file_id_here" logs/monitor.log
+```
+
+### Performance Optimization
+
+For better performance with large files:
+
+1. **Increase Chunk Size**: Set `DOWNLOAD_CHUNK_SIZE_MB=64` for faster downloads
+2. **Adjust Concurrency**: Increase `MAX_CONCURRENT_DOWNLOADS` for multiple simultaneous downloads
+3. **Optimize Check Interval**: Reduce `CHECK_INTERVAL` for more responsive monitoring
+4. **Use SSD Storage**: Store temporary files on fast storage
+
+## Development
+
+### Project Structure
+
+```
+Urbansim/
+├── main.py                          # Main application entry point
+├── config.py                        # Configuration management
+├── requirements.txt                 # Python dependencies
+├── .env.example                     # Environment variables template
+├── service-account.json             # Google API credentials (not in repo)
+├── 
+├── monitor/                         # Drive monitoring components
+│   ├── drive_monitor.py            # Google Drive API interface
+│   └── file_tracker.py             # Processed file tracking
+├── 
+├── processors/                      # File processing components  
+│   ├── file_downloader.py          # Download management
+│   └── archive_handler.py          # Archive extraction and validation
+├── 
+├── validation/                      # Data validation system
+│   ├── manager.py                  # Validation pipeline coordinator
+│   ├── base.py                     # Base validation framework
+│   ├── metacam.py                  # MetaCam format validator
+│   └── transient_validator.py      # AI-based quality assessment
+├── 
+├── detection/                       # AI detection components
+│   ├── transient_detector.py       # YOLO-based object detection
+│   ├── yolo_detector.py            # YOLO model interface
+│   ├── metrics_calculator.py       # Quality metrics computation
+│   ├── quality_decision.py         # Decision logic
+│   ├── region_manager.py           # Spatial analysis
+│   └── sampling_optimizer.py       # Adaptive sampling
+├── 
+├── sheets/                          # Google Sheets integration
+│   ├── sheets_writer.py            # Sheets API interface
+│   └── data_mapper.py              # Data formatting and mapping
+├── 
+├── utils/                           # Utility components
+│   ├── logger.py                   # Logging system
+│   ├── email_notifier.py           # Email notifications
+│   ├── error_formatter.py          # Error message formatting
+│   └── validators.py               # Environment validation
+├── 
+├── data_schemas/                    # Data validation schemas
+│   └── metacam_schema.yaml         # MetaCam package format definition
+├── 
+├── logs/                           # System logs (created at runtime)
+├── downloads/                      # Downloaded files (created at runtime)  
+├── processed/                      # Archive of processed files
+└── temp/                          # Temporary processing files
+```
+
+### Adding New Validators
+
+To add a new validation component:
+
+1. Create a new validator class inheriting from `BaseValidator`
+2. Implement required validation methods
+3. Register the validator in `validation/manager.py`
+4. Update `data_schemas/` with any new schema requirements
+5. Modify `sheets/data_mapper.py` to handle new output fields
+
+### Extending AI Detection
+
+To enhance the AI detection capabilities:
+
+1. Modify `detection/transient_detector.py` for new detection logic
+2. Update `detection/metrics_calculator.py` for new quality metrics
+3. Adjust decision thresholds in `detection/quality_decision.py`
+4. Update Google Sheets output columns in `sheets/sheets_writer.py`
+
+## License
+
+This project is intended for research and development purposes. Please ensure compliance with Google API terms of service and data privacy regulations when processing user data.
+
+## Support
+
+For technical support or questions:
+
+1. Check the [Validation Documentation](validation/VALIDATION_CHECKS.md) for detailed validation requirements
+2. Review system logs in the `logs/` directory
+3. Verify configuration settings in `.env`
+4. Test Google API connectivity with `python main.py --test-connection`
+
+---
+
+*Last Updated: 2024-08-15*  
+*Version: 3.0 - Complete MetaCam processing pipeline with AI quality assessment*

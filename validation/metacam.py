@@ -247,6 +247,14 @@ class MetaCamValidator(BaseValidator):
             file_path = os.path.join(root_path, file_info['path'])
             relative_path = file_info['path']
             
+            # Check for flexible naming (for files like data_0 that can have .bag extension or no extension)
+            if file_info.get('flexible_naming', False):
+                actual_file_path, actual_relative_path = self._find_flexible_file(root_path, file_info)
+                if actual_file_path:
+                    file_path = actual_file_path
+                    relative_path = actual_relative_path
+                    logger.debug(f"Found flexible file: {relative_path}")
+            
             if not os.path.exists(file_path):
                 if is_required:
                     error_msg = f"Missing required file: {relative_path}"
@@ -293,7 +301,12 @@ class MetaCamValidator(BaseValidator):
             expected_extensions = file_info.get('extensions', [])
             if expected_extensions:
                 file_ext = Path(file_path).suffix.lower()
-                if file_ext not in expected_extensions:
+                # Handle empty extension case (when file has no extension)
+                if file_ext == '' and '' not in expected_extensions:
+                    warning_msg = f"File {file_info['path']} extension mismatch: no extension, expected one of {expected_extensions}"
+                    warnings.append(warning_msg)
+                    detail['status'] = 'wrong_extension'
+                elif file_ext != '' and file_ext not in expected_extensions:
                     warning_msg = f"File {file_info['path']} extension mismatch: {file_ext} not in {expected_extensions}"
                     warnings.append(warning_msg)
                     detail['status'] = 'wrong_extension'
@@ -442,8 +455,8 @@ class MetaCamValidator(BaseValidator):
                     elif duration_seconds > 540:  # More than 9 minutes  
                         errors.append(f"Duration too long ({duration_minutes:.1f} min): More than 9 minutes may indicate recording issues")
                         metadata_info['duration_status'] = 'error_too_long'
-                    elif duration_seconds < 300:  # Less than 5 minutes
-                        warnings.append(f"Duration potentially short ({duration_minutes:.1f} min): Less than 5 minutes may be insufficient")
+                    elif duration_seconds < 270:  # Less than 4.5 minutes
+                        warnings.append(f"Duration potentially short ({duration_minutes:.1f} min): Less than 4.5 minutes may be insufficient")
                         metadata_info['duration_status'] = 'warning_short'
                     elif duration_seconds > 420:  # More than 7 minutes
                         warnings.append(f"Duration potentially long ({duration_minutes:.1f} min): More than 7 minutes may be excessive")
@@ -492,6 +505,55 @@ class MetaCamValidator(BaseValidator):
         self._extract_device_info(root_path, metadata_info, errors, warnings)
         
         return metadata_info
+    
+    def _find_flexible_file(self, root_path: str, file_info: Dict[str, Any]) -> tuple:
+        """
+        Find files with flexible naming (e.g., data_0 or data_0.bag)
+        
+        Returns:
+            tuple: (actual_file_path, actual_relative_path) or (None, None) if not found
+        """
+        base_path = file_info['path']
+        base_filename = os.path.basename(base_path)
+        directory = os.path.dirname(base_path)
+        
+        # Get allowed extensions from schema
+        extensions = file_info.get('extensions', [''])
+        
+        # Try each extension
+        for ext in extensions:
+            if ext == '':
+                # Try without extension (original path)
+                test_path = os.path.join(root_path, base_path)
+                test_relative = base_path
+            else:
+                # Try with extension
+                test_filename = base_filename + ext
+                test_relative = os.path.join(directory, test_filename) if directory else test_filename
+                test_path = os.path.join(root_path, test_relative)
+            
+            if os.path.exists(test_path):
+                logger.debug(f"Flexible file found: {test_relative} (extension: '{ext}')")
+                return test_path, test_relative
+        
+        # Also try pattern matching in the directory for similar files
+        try:
+            search_dir = os.path.join(root_path, directory) if directory else root_path
+            if os.path.exists(search_dir):
+                for filename in os.listdir(search_dir):
+                    # Check if filename starts with the base name
+                    if filename.startswith(base_filename):
+                        # Check if it matches one of the allowed extensions
+                        file_ext = os.path.splitext(filename)[1]
+                        if file_ext in extensions or (file_ext == '' and '' in extensions):
+                            found_relative = os.path.join(directory, filename) if directory else filename
+                            found_path = os.path.join(root_path, found_relative)
+                            logger.debug(f"Pattern-matched flexible file: {found_relative}")
+                            return found_path, found_relative
+        except Exception as e:
+            logger.warning(f"Error during flexible file search: {e}")
+        
+        return None, None
     
     def _extract_device_info(self, root_path: str, metadata_info: Dict[str, Any], errors: List[str], warnings: List[str]):
         """Extract device information from info/device_info.json"""

@@ -175,7 +175,7 @@ class GoogleDriveMonitorSystem:
             download_path = self.file_downloader.download_file(file_id, file_name)
             
             if not download_path:
-                error_msg = f"文件下载失败: {file_name}"
+                error_msg = f"File download failed: {file_name}"
                 logger.error(error_msg)
                 self._record_failed_processing(file_info, error_msg, process_start_time)
                 return False
@@ -247,30 +247,30 @@ class GoogleDriveMonitorSystem:
                             if score is not None:
                                 validation_score = f"{score:.1f}/100"
                                 if is_valid:
-                                    logger.success(f"压缩文件和数据格式验证成功: {file_count} 个文件, 得分: {score:.1f}/100")
+                                    logger.success(f"Archive and data format validation successful: {file_count} files, score: {score:.1f}/100")
                                     extract_status = f"Success (Data Validation: {score:.1f}/100)"
                                 else:
                                     summary = data_validation_result.get('summary') if isinstance(data_validation_result, dict) else getattr(data_validation_result, 'summary', 'Unknown validation issue')
-                                    logger.warning(f"压缩文件完整，但数据格式验证失败: {summary}")
+                                    logger.warning(f"Archive integrity OK, but data format validation failed: {summary}")
                                     errors = data_validation_result.get('errors', []) if isinstance(data_validation_result, dict) else getattr(data_validation_result, 'errors', [])
                                     errors_count = len(errors)
                                     extract_status = f"Partial Success (Data Format Issues: {errors_count} errors)"
                                     # Generate standardized English error message
                                     error_message = self._create_validation_error_message(data_validation_result)
                             else:
-                                validation_score = "N/A (解析失败)"
-                                logger.warning(f"数据验证结果解析失败")
+                                validation_score = "N/A (Parse Failed)"
+                                logger.warning(f"Failed to parse data validation result")
                         else:
-                            validation_score = "N/A (跳过验证)"
-                            logger.success(f"压缩文件验证成功: {file_count} 个文件 (跳过数据格式验证)")
+                            validation_score = "N/A (Validation Skipped)"
+                            logger.success(f"Archive validation successful: {file_count} files (data format validation skipped)")
                     else:
                         extract_status = "Failed"
-                        error_message = validation_result.get('error', '未知错误')
-                        logger.warning(f"压缩文件验证失败: {error_message}")
+                        error_message = validation_result.get('error', 'Unknown error')
+                        logger.warning(f"Archive validation failed: {error_message}")
                         
                         # 尝试用默认密码
                         if "password" in error_message.lower():
-                            logger.info("尝试使用默认密码解压...")
+                            logger.info("Attempting extraction with default passwords...")
                             correct_password = self.archive_handler.try_passwords(download_path)
                             if correct_password:
                                 validation_result = self.archive_handler.validate_archive(download_path, correct_password, validate_data_format=True)
@@ -286,22 +286,22 @@ class GoogleDriveMonitorSystem:
                                     if data_validation_result and hasattr(data_validation_result, 'score'):
                                         validation_score = f"{data_validation_result.score:.1f}/100"
                                         if hasattr(data_validation_result, 'is_valid') and data_validation_result.is_valid:
-                                            logger.success(f"使用密码解压成功，数据格式验证通过: {file_count} 个文件, 得分: {data_validation_result.score:.1f}/100")
+                                            logger.success(f"Password extraction successful, data format validation passed: {file_count} files, score: {data_validation_result.score:.1f}/100")
                                             extract_status = f"Success (Password + Data Validation: {data_validation_result.score:.1f}/100)"
                                         else:
                                             summary = getattr(data_validation_result, 'summary', 'Unknown validation issue')
-                                            logger.warning(f"使用密码解压成功，但数据格式验证失败: {summary}")
+                                            logger.warning(f"Password extraction successful, but data format validation failed: {summary}")
                                             extract_status = f"Partial Success (Password Success, Data Format Issues)"
                                             # Generate standardized English error message
                                             error_message = self._create_validation_error_message(data_validation_result)
                                     else:
-                                        validation_score = "N/A (跳过验证)"
-                                        logger.success(f"使用密码解压成功: {file_count} 个文件")
+                                        validation_score = "N/A (Validation Skipped)"
+                                        logger.success(f"Password extraction successful: {file_count} files")
                 
             except Exception as e:
-                extract_status = "失败"
+                extract_status = "Failed"
                 error_message = str(e)
-                logger.warning(f"压缩文件处理出错: {e}")
+                logger.warning(f"Archive processing error: {e}")
             
             # 3. 提取场景类型、大小状态、PCD尺度和Transient检测信息
             scene_type = ''
@@ -573,54 +573,92 @@ class GoogleDriveMonitorSystem:
             self.shutdown()
     
     def _create_validation_error_message(self, data_validation_result) -> str:
-        """Create standardized English error message from validation result"""
+        """Create clear, specific error message explaining actual validation problems"""
         try:
             if not data_validation_result:
                 return ""
             
-            # Extract validation summary if available
-            if hasattr(data_validation_result, 'summary'):
-                summary = data_validation_result.summary
+            # Extract validation details
+            errors = []
+            score = None
+            summary = ""
+            
+            if hasattr(data_validation_result, 'errors'):
+                errors = data_validation_result.errors
+                score = getattr(data_validation_result, 'score', None)
+                summary = getattr(data_validation_result, 'summary', '')
             elif isinstance(data_validation_result, dict):
+                errors = data_validation_result.get('errors', [])
+                score = data_validation_result.get('score')
                 summary = data_validation_result.get('summary', '')
             else:
                 summary = str(data_validation_result)
             
-            # Extract score information
-            score = None
-            if hasattr(data_validation_result, 'score'):
-                score = data_validation_result.score
-            elif isinstance(data_validation_result, dict):
-                score = data_validation_result.get('score')
+            # Create specific, actionable error message
+            specific_errors = []
             
-            # Create a clean English error message
-            if score is not None:
-                if "Pipeline Validation:" in summary:
-                    # Parse the pipeline validation summary to create a cleaner message
-                    if "Basic(" in summary and "Transient(" in summary:
-                        try:
-                            # Extract scores from summary like "Pipeline Validation: Basic(19.0) + Transient(20.0) = 19.3/100 - FAIL"
-                            basic_match = summary.split("Basic(")[1].split(")")[0]
-                            transient_match = summary.split("Transient(")[1].split(")")[0]
-                            final_score = summary.split("= ")[1].split("/")[0]
-                            
-                            return f"Validation Failed: Basic Score {basic_match}/100, Transient Score {transient_match}/100, Overall {final_score}/100"
-                        except:
-                            return f"Validation Failed: Score {score:.1f}/100"
+            # Parse actual errors instead of relying on summary
+            for error in errors[:5]:  # Show up to 5 specific errors
+                error_str = str(error).strip()
+                if error_str:
+                    # Clean up error text and make it more readable
+                    error_str = self._format_specific_error(error_str)
+                    specific_errors.append(error_str)
+            
+            # If we have specific errors, use them
+            if specific_errors:
+                error_message = "; ".join(specific_errors)
+                if len(errors) > 5:
+                    error_message += f" (and {len(errors) - 5} more issues)"
+                return error_message
+            
+            # Fallback: try to extract meaningful info from pipeline validation
+            if "Pipeline Validation:" in summary and "Basic(" in summary and "Transient(" in summary:
+                try:
+                    basic_score = float(summary.split("Basic(")[1].split(")")[0])
+                    transient_score = float(summary.split("Transient(")[1].split(")")[0])
+                    
+                    issues = []
+                    if basic_score < 50:
+                        issues.append(f"File structure/format issues (score: {basic_score:.1f}/100)")
+                    if transient_score < 50:
+                        issues.append(f"Data quality issues (score: {transient_score:.1f}/100)")
+                    
+                    if issues:
+                        return "; ".join(issues)
                     else:
-                        return f"Validation Failed: Score {score:.1f}/100"
-                else:
-                    return f"Validation Issues: Score {score:.1f}/100"
+                        return f"Validation standards not met (Basic: {basic_score:.1f}/100, Data Quality: {transient_score:.1f}/100)"
+                except:
+                    pass
+            
+            # Final fallback
+            if score is not None:
+                return f"Data validation failed with score {score:.1f}/100 - check file structure and content quality"
             else:
-                # Fallback for cases without score
-                if "FAIL" in summary:
-                    return "Validation Failed: Multiple validation issues detected"
-                else:
-                    return "Validation Issues: See details in logs"
+                return "Data validation failed - check logs for details"
                     
         except Exception as e:
             logger.warning(f"Failed to create validation error message: {e}")
-            return "Validation Issues: Unable to parse validation details"
+            return "Data validation failed - unable to parse error details"
+    
+    def _format_specific_error(self, error_str: str) -> str:
+        """Format specific error messages to be more user-friendly"""
+        # Remove redundant prefixes
+        error_str = error_str.replace("Error:", "").replace("error:", "").strip()
+        
+        # Make common errors more readable
+        if "missing required file" in error_str.lower():
+            return error_str.replace("Missing required file:", "Missing file:")
+        elif "missing required directory" in error_str.lower():
+            return error_str.replace("Missing required directory:", "Missing folder:")
+        elif "file too small" in error_str.lower():
+            return error_str.replace("too small", "is too small")
+        elif "file too large" in error_str.lower():
+            return error_str.replace("too large", "is too large")
+        elif "invalid" in error_str.lower() and "format" in error_str.lower():
+            return error_str.replace("Invalid", "Invalid format in")
+        
+        return error_str
     
     def get_system_stats(self) -> Dict:
         """获取系统统计信息"""

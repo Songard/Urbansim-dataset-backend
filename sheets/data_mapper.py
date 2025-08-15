@@ -270,24 +270,69 @@ class SheetsDataMapper:
                 validation_score
             )
             
-            # Create standardized error message - only show actual errors, not warnings
-            # Separate critical errors from minor validation issues
-            critical_errors = [e for e in standardized_errors if e.severity == ErrorSeverity.CRITICAL or e.severity == ErrorSeverity.ERROR]
+            # Enhanced error and warning categorization
+            # ERRORS: Critical issues that prevent successful processing
+            critical_errors = []
+            # WARNINGS: Issues that don't prevent processing but should be reviewed
+            review_warnings = []
             
-            error_message = ErrorFormatter.format_error_list(
-                critical_errors, 
-                max_errors=3
-            )
+            for error in standardized_errors:
+                if error.severity == ErrorSeverity.CRITICAL or error.severity == ErrorSeverity.ERROR:
+                    critical_errors.append(error)
+                else:
+                    review_warnings.append(error)
             
-            # Create warning message from warnings and non-critical errors
-            warning_items = [e for e in standardized_warnings if e.severity == ErrorSeverity.WARNING]
-            minor_errors = [e for e in standardized_errors if e.severity == ErrorSeverity.INFO]
-            all_warnings = warning_items + minor_errors
+            for warning in standardized_warnings:
+                if warning.severity == ErrorSeverity.WARNING:
+                    review_warnings.append(warning)
             
-            warning_message = ErrorFormatter.format_error_list(
-                all_warnings,
-                max_errors=3
-            )
+            # Create clear, specific error message showing actual problems
+            error_message = ""
+            if critical_errors:
+                # Show actual error details instead of just categories
+                error_details = []
+                for error in critical_errors[:5]:  # Show up to 5 specific errors
+                    # Handle StandardizedError objects properly
+                    if hasattr(error, 'message'):
+                        error_text = error.message.strip()
+                    else:
+                        error_text = str(error).strip()
+                    
+                    # Clean up and format error text
+                    if error_text:
+                        # Remove redundant prefixes
+                        error_text = error_text.replace("Error:", "").replace("error:", "").strip()
+                        # Make it more readable
+                        error_text = cls._format_error_for_display(error_text)
+                        error_details.append(error_text)
+                
+                if error_details:
+                    error_message = "; ".join(error_details)
+                    if len(critical_errors) > 5:
+                        error_message += f" (and {len(critical_errors) - 5} more issues)"
+            
+            # Create clear, specific warning message
+            warning_message = ""
+            if review_warnings:
+                # Show actual warning details instead of just categories
+                warning_details = []
+                for warning in review_warnings[:5]:  # Show up to 5 specific warnings
+                    # Handle StandardizedError objects properly
+                    if hasattr(warning, 'message'):
+                        warning_text = warning.message.strip()
+                    else:
+                        warning_text = str(warning).strip()
+                    
+                    # Clean up and format warning text
+                    if warning_text:
+                        # Remove redundant prefixes
+                        warning_text = warning_text.replace("warning:", "").replace("Warning:", "").strip()
+                        warning_details.append(warning_text)
+                
+                if warning_details:
+                    warning_message = "; ".join(warning_details)
+                    if len(review_warnings) > 5:
+                        warning_message += f" (and {len(review_warnings) - 5} more)"
             
             standardized_info['extract_status'] = extract_status
             # Only override error_message if it's empty or not already set
@@ -341,6 +386,69 @@ class SheetsDataMapper:
         
         sheets_record.update(defaults)
         return sheets_record
+    
+    @classmethod
+    def _format_error_for_display(cls, error_text: str) -> str:
+        """Format error text to be more user-friendly and specific"""
+        # Common formatting improvements
+        error_text = error_text.replace("Missing required file:", "Missing file:")
+        error_text = error_text.replace("Missing required directory:", "Missing folder:")
+        error_text = error_text.replace("File", "file")
+        error_text = error_text.replace("too small:", "is smaller than required:")
+        error_text = error_text.replace("too large:", "is larger than allowed:")
+        
+        # Handle specific validation messages
+        if "validation failed" in error_text.lower():
+            error_text = error_text.replace("validation failed", "validation failed")
+        if "invalid" in error_text.lower() and "format" in error_text.lower():
+            error_text = error_text.replace("Invalid", "Invalid format in")
+        
+        return error_text
+    
+    @classmethod
+    def _categorize_error(cls, error_text: str) -> str:
+        """Categorize errors for better readability"""
+        error_text_lower = error_text.lower()
+        
+        if "missing" in error_text_lower:
+            if "file" in error_text_lower:
+                return "Missing Files"
+            elif "directory" in error_text_lower:
+                return "Missing Directories"
+            else:
+                return "Missing Data"
+        elif "invalid" in error_text_lower or "format" in error_text_lower:
+            return "Format Issues"
+        elif "size" in error_text_lower:
+            return "Size Issues"
+        elif "validation" in error_text_lower:
+            return "Validation Failures"
+        elif "transient" in error_text_lower:
+            return "Transient Detection"
+        elif "basic" in error_text_lower:
+            return "Basic Validation"
+        else:
+            return "Other Issues"
+    
+    @classmethod
+    def _categorize_warning(cls, warning_text: str) -> str:
+        """Categorize warnings for better readability"""
+        warning_text_lower = warning_text.lower()
+        
+        if "scene" in warning_text_lower or "naming" in warning_text_lower:
+            return "Scene Naming"
+        elif "size" in warning_text_lower:
+            return "File Size"
+        elif "pcd" in warning_text_lower or "scale" in warning_text_lower:
+            return "PCD Scale"
+        elif "duration" in warning_text_lower:
+            return "Duration"
+        elif "location" in warning_text_lower:
+            return "Location"
+        elif "device" in warning_text_lower:
+            return "Device Info"
+        else:
+            return "General Warnings"
     
     @classmethod
     def validate_record(cls, record: Dict[str, Any]) -> bool:

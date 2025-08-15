@@ -1,6 +1,6 @@
-# Validation Checks Documentation
+# MetaCam Data Validation Documentation
 
-This document describes all validation checks performed by the Urban Simulation validation system. This documentation is maintained alongside the validation code and will be updated whenever validation logic changes.
+This document describes all validation checks performed by the MetaCam Data Processing System. This comprehensive validation ensures data quality and integrity before processing 3D reconstruction datasets. This documentation is maintained alongside the validation code and updated whenever validation logic changes.
 
 ## Overview
 
@@ -49,10 +49,14 @@ This stage validates the fundamental structure and files of MetaCam data package
 
 **Data Directory Files**:
 - `data/data_0` - Primary sensor data file (1MB-2GB)
+  - Supports flexible naming: `data_0` (no extension) or `data_0.bag` (ROS bag format)
+  - Automatic detection and validation of both formats
 
 **Info Directory Files**:
 - `info/calibration.json` - Camera calibration parameters
-- `info/device_info.json` - Device information
+- `info/device_info.json` - Device information and metadata
+  - Contains device model, serial number, hardware configuration
+  - Used for automatic device ID generation (`{model}-{SN}`)
 - `info/rtk_info.json` - RTK positioning data
 
 #### 1.3 Metadata File Validation
@@ -70,9 +74,9 @@ This stage validates the fundamental structure and files of MetaCam data package
 **Validation Rules**:
 
 #### Duration Validation
-- **Optimal Range**: 5-7 minutes
+- **Optimal Range**: 4.5-7 minutes
 - **Warning Conditions**: 
-  - Duration < 5 minutes: Issues warning for potentially insufficient data
+  - Duration 3-4.5 minutes: Issues warning for potentially insufficient data
   - Duration > 7 minutes: Issues warning for potentially excessive data
 - **Error Conditions**:
   - Duration < 3 minutes: Fails validation (insufficient data)
@@ -82,13 +86,14 @@ This stage validates the fundamental structure and files of MetaCam data package
 The following metadata information is automatically uploaded to Google Sheets:
 - **Start Time**: Recording start time from metadata
 - **Duration**: Recording duration (HH:MM:SS format) with color-coded background:
-  - 🟢 **Green**: Optimal range (5-7 minutes)
-  - 🟡 **Yellow**: Warning range (<5 min or >7 min)  
+  - 🟢 **Green**: Optimal range (4.5-7 minutes)
+  - 🟡 **Yellow**: Warning range (3-4.5 min or >7 min)  
   - 🔴 **Red**: Error range (<3 min or >9 min)
   - ⚪ **Gray**: Parse error or unknown
 - **Location**: Combined coordinates (latitude, longitude)
-- **Validation Score**: Overall validation score
-- **Validation Status**: Pass/warning/error with detailed messages
+- **Device ID**: Automatically extracted device identifier ({model}-{SN})
+- **Validation Score**: Overall validation score (0-100)
+- **Validation Status**: Pass/warning/error with specific, actionable error messages
 
 ### 2. File Structure Validation
 
@@ -266,19 +271,59 @@ Combined Score = (Basic Format Score × 0.7) + (Transient Detection Score × 0.3
 - Data consistency verification
 - Schema compliance validation
 
-## Validation Results
+## Validation Results & Error Handling
 
 ### Status Levels
-- **PASS**: All validations successful
-- **WARNING**: Minor issues detected, but processing can continue
-- **ERROR**: Critical issues detected, processing should be halted
+- **PASS**: All critical validations successful, data ready for processing
+- **WARNING**: Minor issues detected, manual review recommended but processing can continue
+- **ERROR**: Critical issues detected, data rejected and processing halted
+
+### Enhanced Error Messaging
+
+The system provides clear, actionable error messages instead of technical jargon:
+
+**Old Format (Technical)**:
+```
+Data format validation failed: Pipeline Validation: Basic(19.0) + Transient(10.0) = 16.3/100 - FAIL
+```
+
+**New Format (User-Friendly)**:
+```
+Missing file: info/device_info.json; file metadata.yaml is smaller than required: 45 < 100; Missing folder: camera/left
+```
+
+### Error Categorization
+
+Errors are automatically categorized by type for easier troubleshooting:
+
+| Category | Description | Examples |
+|----------|-------------|----------|
+| **Missing Files** | Required files not found | `Missing file: metadata.yaml` |
+| **Missing Directories** | Required folders not found | `Missing folder: camera/left` |
+| **File Size Issues** | Files outside acceptable size ranges | `file data_0 is larger than allowed: 3GB > 2GB` |
+| **Format Issues** | Invalid file formats or content | `Invalid format in Preview.pcd` |
+| **Validation Failures** | Specific validation checks failed | `Duration too short (2.5 min): Less than 3 minutes` |
+
+### Warning Categorization
+
+Warnings provide specific details about potential issues:
+
+| Category | Description | Examples |
+|----------|-------------|----------|
+| **Scene Naming** | File naming convention issues | `Scene naming does not follow standard convention` |
+| **File Size** | Size outside recommended ranges | `File size larger than recommended: Preview.jpg is 15MB` |
+| **PCD Scale** | Point cloud dimensions unusual | `PCD scale point cloud dimensions are unusual` |
+| **Duration** | Recording time concerns | `Duration recording is only 2.5 minutes` |
+| **Location** | GPS/positioning issues | `Location data missing from metadata` |
+| **Device Info** | Device metadata problems | `Device info missing model field` |
 
 ### Reporting
+
 All validation results are:
-1. Logged to the system log
-2. Uploaded to Google Sheets with timestamp and details
-3. Available through the validation API
-4. Included in email notifications (if configured)
+1. **Logged to system logs** with detailed technical information
+2. **Uploaded to Google Sheets** with color-coded status and user-friendly messages
+3. **Available through validation API** for programmatic access
+4. **Included in email notifications** (if configured) with actionable summaries
 
 ## Usage
 
@@ -329,5 +374,5 @@ This documentation should be updated whenever:
 
 ---
 
-*Last Updated: 2025-08-11 - Pipeline Validation Architecture*
-*Version: 2.0 - Added pipeline validation with MetaCam + Transient detection*
+*Last Updated: 2025-08-15 - Enhanced Error Handling and Device ID Extraction*
+*Version: 3.0 - Complete validation pipeline with improved error messaging, device ID extraction, and flexible file naming support*

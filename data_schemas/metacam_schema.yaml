@@ -81,6 +81,8 @@ data_directory_files:
     file_type: "binary"
     min_size: 1048576  # 1MB
     max_size: 2147483648  # 2GB
+    extensions: [".bag", ""]  # 支持.bag扩展名或无扩展名
+    flexible_naming: true  # 允许灵活的文件名匹配
 
 # info目录下的必需文件
 info_directory_files:
@@ -126,15 +128,15 @@ validation_levels:
 content_validation:
   json_files:
     - path: "info/calibration.json"
-      required_keys: ["camera_matrix", "distortion_coeffs"]
+      required_keys: ["cameras"]
     - path: "info/device_info.json"
-      required_keys: ["device_id", "firmware_version"]
+      required_keys: ["model", "SN"]
     - path: "info/rtk_info.json"
-      required_keys: ["status"]
+      required_keys: []
       
   yaml_files:
     - path: "metadata.yaml"
-      required_keys: ["record"]  # location is optional since it can be null
+      required_keys: ["cameras"]  # location is optional since it can be null
 
 # 验证警告和错误消息
 messages:

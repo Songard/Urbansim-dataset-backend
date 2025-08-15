@@ -407,7 +407,7 @@ class ArchiveHandler:
             archive_name = Path(file_path).name
             scene_validation = validate_scene_naming(archive_name)
             result['scene_validation'] = scene_validation
-            logger.info(f"场景命名验证结果: {scene_validation['scene_type']} - {scene_validation.get('error_message', 'OK')}")
+            logger.info(f"Scene naming validation result: {scene_validation['scene_type']} - {scene_validation.get('error_message', 'OK')}")
             
             # 尝试解压以验证完整性和数据格式
             temp_dir = tempfile.mkdtemp(prefix="validate_")
@@ -426,18 +426,18 @@ class ArchiveHandler:
                     # 验证解压后文件大小合理性
                     size_validation = validate_extracted_file_size(total_size)
                     result['size_validation'] = size_validation
-                    logger.info(f"文件大小验证结果: {size_validation['size_gb']}GB - {size_validation['size_status']} - {size_validation.get('error_message', 'OK')}")
+                    logger.info(f"File size validation result: {size_validation['size_gb']}GB - {size_validation['size_status']} - {size_validation.get('error_message', 'OK')}")
                     
                     # 验证PCD点云尺度（传入场景类型）
                     scene_type = scene_validation.get('scene_type', 'outdoor')
                     pcd_validation = self._validate_pcd_in_extracted_dir(extract_result, scene_type)
                     result['pcd_validation'] = pcd_validation
                     if pcd_validation:
-                        logger.info(f"PCD尺度验证结果: {pcd_validation.get('width_m', 0):.1f}m × {pcd_validation.get('height_m', 0):.1f}m - {pcd_validation['scale_status']} - {pcd_validation.get('error_message', 'OK')}")
+                        logger.info(f"PCD scale validation result: {pcd_validation.get('width_m', 0):.1f}m × {pcd_validation.get('height_m', 0):.1f}m - {pcd_validation['scale_status']} - {pcd_validation.get('error_message', 'OK')}")
                     
                     # 数据格式验证
                     if validate_data_format:
-                        logger.info("开始验证数据格式...")
+                        logger.info("Starting data format validation...")
                         try:
                             validation_result = self.validation_manager.validate(
                                 extract_result, 
@@ -474,41 +474,41 @@ class ArchiveHandler:
                             # 收集所有验证错误信息
                             errors = []
                             if not data_valid:
-                                errors.append(f"数据格式验证失败: {validation_result.summary}")
-                                logger.warning(f"数据格式验证失败: {len(validation_result.errors)}个错误")
+                                errors.append(f"Data format validation failed: {validation_result.summary}")
+                                logger.warning(f"Data format validation failed: {len(validation_result.errors)} errors")
                             else:
-                                logger.info(f"数据格式验证通过: {validation_result.summary}")
+                                logger.info(f"Data format validation passed: {validation_result.summary}")
                             
                             if not scene_valid:
                                 # 场景命名是警告级别，不添加到errors中
-                                logger.warning(f"场景命名警告: {scene_validation.get('error_message', '未知错误')}")
+                                logger.warning(f"Scene naming warning: {scene_validation.get('error_message', 'Unknown error')}")
                             else:
-                                logger.info(f"场景命名验证通过: 类型为 {scene_validation['scene_type']}")
+                                logger.info(f"Scene naming validation passed: type is {scene_validation['scene_type']}")
                             
                             if not size_acceptable:
-                                errors.append(f"文件大小验证警告: {size_validation.get('error_message', '未知错误')}")
-                                logger.warning(f"文件大小验证警告: {size_validation.get('error_message', '未知错误')}")
+                                errors.append(f"File size validation warning: {size_validation.get('error_message', 'Unknown error')}")
+                                logger.warning(f"File size validation warning: {size_validation.get('error_message', 'Unknown error')}")
                             else:
-                                logger.info(f"文件大小验证通过: {size_validation['size_gb']}GB ({size_validation['size_status']})")
+                                logger.info(f"File size validation passed: {size_validation['size_gb']}GB ({size_validation['size_status']})")
                             
                             # PCD尺度验证（警告级别）
                             if pcd_validation:
                                 if not pcd_acceptable and pcd_validation['scale_status'] not in ['not_found', 'error']:
                                     # PCD尺度问题是警告级别，不添加到errors中
-                                    logger.warning(f"PCD尺度警告: {pcd_validation.get('error_message', '未知错误')}")
+                                    logger.warning(f"PCD scale warning: {pcd_validation.get('error_message', 'Unknown error')}")
                                 elif pcd_validation['scale_status'] == 'optimal':
-                                    logger.info(f"PCD尺度验证通过: {pcd_validation.get('width_m', 0):.1f}m × {pcd_validation.get('height_m', 0):.1f}m")
+                                    logger.info(f"PCD scale validation passed: {pcd_validation.get('width_m', 0):.1f}m × {pcd_validation.get('height_m', 0):.1f}m")
                                 elif pcd_validation['scale_status'] == 'not_found':
-                                    logger.info("未找到PCD文件，跳过尺度验证")
+                                    logger.info("PCD file not found, skipping scale validation")
                                 elif pcd_validation['scale_status'] == 'error':
-                                    logger.warning(f"PCD验证出错: {pcd_validation.get('error_message', '未知错误')}")
+                                    logger.warning(f"PCD validation error: {pcd_validation.get('error_message', 'Unknown error')}")
                             
                             # 设置错误信息
                             if errors:
                                 result['error'] = "; ".join(errors)
                                 
                         except Exception as e:
-                            logger.error(f"数据格式验证异常: {e}")
+                            logger.error(f"Data format validation exception: {e}")
                             result['data_validation'] = {
                                 'is_valid': False,
                                 'score': 0.0,
@@ -521,7 +521,7 @@ class ArchiveHandler:
                                 'metadata': {}  # 异常时提供空metadata
                             }
                             result['is_valid'] = False
-                            result['error'] = f"数据格式验证异常: {e}"
+                            result['error'] = f"Data format validation exception: {e}"
                     else:
                         # 仅验证压缩文件完整性和文件大小
                         # 注意：场景命名和PCD尺度是警告级别，不影响整体验证结果
@@ -535,32 +535,32 @@ class ArchiveHandler:
                         errors = []
                         if not scene_valid:
                             # 场景命名是警告级别，不添加到errors中
-                            logger.warning(f"场景命名警告: {scene_validation.get('error_message', '未知错误')}")
+                            logger.warning(f"Scene naming warning: {scene_validation.get('error_message', 'Unknown error')}")
                         else:
-                            logger.info(f"场景命名验证通过: 类型为 {scene_validation['scene_type']}")
+                            logger.info(f"Scene naming validation passed: type is {scene_validation['scene_type']}")
                         
                         if not size_acceptable:
-                            errors.append(f"文件大小验证警告: {size_validation.get('error_message', '未知错误')}")
-                            logger.warning(f"文件大小验证警告: {size_validation.get('error_message', '未知错误')}")
+                            errors.append(f"File size validation warning: {size_validation.get('error_message', 'Unknown error')}")
+                            logger.warning(f"File size validation warning: {size_validation.get('error_message', 'Unknown error')}")
                         else:
-                            logger.info(f"文件大小验证通过: {size_validation['size_gb']}GB ({size_validation['size_status']})")
+                            logger.info(f"File size validation passed: {size_validation['size_gb']}GB ({size_validation['size_status']})")
                         
                         # PCD尺度验证（警告级别）
                         if pcd_validation:
                             if not pcd_acceptable and pcd_validation['scale_status'] not in ['not_found', 'error']:
                                 # PCD尺度问题是警告级别，不添加到errors中
-                                logger.warning(f"PCD尺度警告: {pcd_validation.get('error_message', '未知错误')}")
+                                logger.warning(f"PCD scale warning: {pcd_validation.get('error_message', 'Unknown error')}")
                             elif pcd_validation['scale_status'] == 'optimal':
-                                logger.info(f"PCD尺度验证通过: {pcd_validation.get('width_m', 0):.1f}m × {pcd_validation.get('height_m', 0):.1f}m")
+                                logger.info(f"PCD scale validation passed: {pcd_validation.get('width_m', 0):.1f}m × {pcd_validation.get('height_m', 0):.1f}m")
                             elif pcd_validation['scale_status'] == 'not_found':
-                                logger.info("未找到PCD文件，跳过尺度验证")
+                                logger.info("PCD file not found, skipping scale validation")
                             elif pcd_validation['scale_status'] == 'error':
-                                logger.warning(f"PCD验证出错: {pcd_validation.get('error_message', '未知错误')}")
+                                logger.warning(f"PCD validation error: {pcd_validation.get('error_message', 'Unknown error')}")
                         
                         if errors:
                             result['error'] = "; ".join(errors)
                         
-                        logger.info("跳过数据格式验证，仅验证场景命名、文件大小和PCD尺度")
+                        logger.info("Skipping data format validation, only validating scene naming, file size and PCD scale")
                 else:
                     result['error'] = "Archive extraction failed"
                     
@@ -638,27 +638,27 @@ class ArchiveHandler:
                         break
             
             if not pcd_file_path:
-                logger.warning("未找到Preview.pcd文件，跳过PCD尺度验证")
+                logger.warning("Preview.pcd file not found, skipping PCD scale validation")
                 return {
                     'scale_status': 'not_found',
-                    'error_message': '未找到Preview.pcd文件',
+                    'error_message': 'Preview.pcd file not found',
                     'is_valid_scale': True,  # 不影响整体验证
                     'width_m': 0.0,
                     'height_m': 0.0,
                     'points_parsed': 0
                 }
             
-            logger.debug(f"找到PCD文件: {pcd_file_path}")
+            logger.debug(f"Found PCD file: {pcd_file_path}")
             
             # 验证PCD尺度
             pcd_result = validate_pcd_scale(pcd_file_path, scene_type)
             return pcd_result
             
         except Exception as e:
-            logger.error(f"PCD验证过程中出错: {e}")
+            logger.error(f"Error during PCD validation: {e}")
             return {
                 'scale_status': 'error',
-                'error_message': f'PCD验证异常: {e}',
+                'error_message': f'PCD validation exception: {e}',
                 'is_valid_scale': True,  # 不影响整体验证
                 'width_m': 0.0,
                 'height_m': 0.0,
