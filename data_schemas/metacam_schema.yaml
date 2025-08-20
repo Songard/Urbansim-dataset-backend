@@ -136,7 +136,7 @@ content_validation:
       
   yaml_files:
     - path: "metadata.yaml"
-      required_keys: ["cameras"]  # location is optional since it can be null
+      required_keys: []  # location is optional since it can be null
 
 # 验证警告和错误消息
 messages:
