@@ -7,7 +7,8 @@
       "Bash(del:*)",
       "Bash(rm:*)",
       "Bash(dir temp)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(pip install:*)"
     ],
     "deny": [],
     "defaultMode": "acceptEdits"

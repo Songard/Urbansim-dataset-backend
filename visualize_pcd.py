@@ -45,7 +45,7 @@ def visualize_pcd(pcd_path: str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Visualize a PCD file.")
     parser.add_argument('--file', type=str, 
-                        default=r"C:\Users\15436\Documents\MyPrograms\Urbansim\processed\indoor_726broadway8thto9th\indoor_726broadway8thto9th\Preview.pcd",
+                        default=r"F:\2025-08-20_15-23-34\Preview.pcd",
                         help="Path to the PCD file to visualize.")
     args = parser.parse_args()
     
