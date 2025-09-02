@@ -17,19 +17,59 @@ class SheetsWriter:
         self.spreadsheet_id = Config.SPREADSHEET_ID
         self.sheet_name = Config.SHEET_NAME
         # Standardized headers - All English
+        # 
+        # 【添加新字段完整流程说明】
+        # 如果要添加新的数据字段到Google Sheets，必须按以下步骤操作：
+        #
+        # 1. 【数据源确认】在monitor/drive_monitor.py中确保API请求包含所需字段
+        #    - 修改get_new_files()方法的fields参数
+        #    - 修改get_file_metadata()方法的fields参数
+        #    - 确保文件信息字典包含新字段
+        #
+        # 2. 【Sheets表头】在此文件(sheets/sheets_writer.py)中添加新列标题到headers数组
+        #    - 在适当位置添加列名（英文）
+        #    - 更新field_mapping字典，添加字段名到列索引的映射
+        #    - 更新所有相关格式化方法中的列索引（如果新字段会影响其他列位置）
+        #
+        # 3. 【数据映射】在sheets/data_mapper.py中添加字段提取逻辑
+        #    - 在SHEETS_FIELDS中定义新字段及其类型
+        #    - 创建或修改相应的_extract_xxx_info()方法
+        #    - 确保在map_validation_result()方法中调用提取逻辑
+        #    - 在_fill_default_values()方法中添加默认值
+        #
+        # 4. 【主程序数据传递】在main.py中确保新字段被包含在sheets_record中
+        #    - 修改process_file()方法中的sheets_record构建
+        #    - 修改_record_failed_processing()方法中的sheets_record构建
+        #    - 确保从file_info正确提取数据传递给sheets_record
+        #
+        # 5. 【范围更新】更新Google Sheets范围引用
+        #    - 修改所有涉及列范围的字符串（如A1:Y1 -> A1:AA1）
+        #
+        # 【本次Owner/Uploader字段添加遇到的问题分析】
+        # 问题根本原因：数据流程中断 - 虽然步骤1、2、3都做了，但步骤4遗漏了
+        # 具体表现：
+        # - drive_monitor正确获取了owners数据 ✓
+        # - sheets_writer正确定义了表头和映射 ✓  
+        # - data_mapper有提取逻辑但没被调用 ✓
+        # - main.py没有将owners字段传递给sheets_record ✗ <- 关键问题
+        # - _fill_default_values分支没有调用owner提取 ✗ <- 次要问题
+        #
+        # 教训：添加字段时必须检查完整的数据流程，确保每个环节都包含新字段
+        #
         self.headers = [
-            'Entry ID', 'Validation Status', 'Validation Score', 'File ID', 'File Name', 'Upload Time', 'Device ID', 'File Size', 'File Type',
+            'Entry ID', 'Validation Status', 'Validation Score', 'File ID', 'File Name', 'Upload Time', 'Device ID', 'Owner Name', 'Uploader Email', 'File Size', 'File Type',
             'Extract Status', 'File Count', 'Process Time', 'Start Time', 'Duration', 'Location', 'Scene Type', 'Size Status', 
             'PCD Scale', 'Transient Detection', 'Weighted Detection Density', 'Weighted Person Occupancy', 'Scene Activity Index', 'Error Message', 'Warning Message', 'Notes'
         ]
         
         # Field mapping to headers - reorganized for better readability
+        # 注意：添加新字段时，所有后续字段的索引都需要相应调整
         self.field_mapping = {
             'entry_id': 0, 'validation_status': 1, 'validation_score': 2, 'file_id': 3, 'file_name': 4, 
-            'upload_time': 5, 'device_id': 6, 'file_size': 7, 'file_type': 8, 'extract_status': 9, 'file_count': 10, 
-            'process_time': 11, 'start_time': 12, 'duration': 13, 'location': 14, 'scene_type': 15, 
-            'size_status': 16, 'pcd_scale': 17, 'transient_decision': 18, 'wdd': 19, 'wpo': 20, 
-            'sai': 21, 'error_message': 22, 'warning_message': 23, 'notes': 24
+            'upload_time': 5, 'device_id': 6, 'owner_name': 7, 'uploader_email': 8, 'file_size': 9, 'file_type': 10, 'extract_status': 11, 'file_count': 12, 
+            'process_time': 13, 'start_time': 14, 'duration': 15, 'location': 16, 'scene_type': 17, 
+            'size_status': 18, 'pcd_scale': 19, 'transient_decision': 20, 'wdd': 21, 'wpo': 22, 
+            'sai': 23, 'error_message': 24, 'warning_message': 25, 'notes': 26
         }
         self._initialize_service()
     
@@ -96,7 +136,7 @@ class SheetsWriter:
             if not self._verify_and_get_sheet_name():
                 return False
             
-            range_name = f"'{self.sheet_name}'!A1:Y1"
+            range_name = f"'{self.sheet_name}'!A1:AA1"
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.spreadsheet_id,
                 range=range_name
@@ -164,7 +204,7 @@ class SheetsWriter:
                 logger.info(f"Using first sheet: '{self.sheet_name}'")
                 
                 # Try again with proper sheet name
-                range_name = f"'{self.sheet_name}'!A1:Y1"
+                range_name = f"'{self.sheet_name}'!A1:AA1"
                 result = self.service.spreadsheets().values().get(
                     spreadsheetId=self.spreadsheet_id,
                     range=range_name
@@ -185,7 +225,7 @@ class SheetsWriter:
             
     def _create_headers(self):
         try:
-            range_name = f"'{self.sheet_name}'!A1:Y1"
+            range_name = f"'{self.sheet_name}'!A1:AA1"
             body = {
                 'values': [self.headers]
             }
@@ -242,8 +282,8 @@ class SheetsWriter:
             return
             
         try:
-            # Duration is column N (index 13, 0-based) - shifted due to Entry ID, Validation Status, and Device ID
-            duration_column = 13
+            # Duration is column P (index 15, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email
+            duration_column = 15
             
             # Define colors based on status
             colors = {
@@ -309,8 +349,8 @@ class SheetsWriter:
             return
             
         try:
-            # Size Status is column Q (index 16, 0-based) - shifted due to Entry ID, Validation Status, and Device ID
-            size_status_column = 16
+            # Size Status is column S (index 18, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email
+            size_status_column = 18
             
             # Define colors based on size status
             colors = {
@@ -376,8 +416,8 @@ class SheetsWriter:
             return
             
         try:
-            # PCD Scale is column R (index 17, 0-based) - shifted due to Entry ID, Validation Status, and Device ID
-            pcd_scale_column = 17
+            # PCD Scale is column T (index 19, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email
+            pcd_scale_column = 19
             
             # Define colors based on PCD scale status
             colors = {
@@ -446,8 +486,8 @@ class SheetsWriter:
             return
             
         try:
-            # Transient Detection is column S (index 18, 0-based) - shifted due to Entry ID, Validation Status, and Device ID
-            transient_column = 18
+            # Transient Detection is column U (index 20, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email
+            transient_column = 20
             
             # Define colors based on detection decision
             colors = {
@@ -664,7 +704,7 @@ class SheetsWriter:
                     return False
                     
                 next_row = self._get_next_empty_row()
-                range_name = f"'{self.sheet_name}'!A{next_row}:Y{next_row}"
+                range_name = f"'{self.sheet_name}'!A{next_row}:AA{next_row}"
                 
                 # Use unified data preparation method
                 formatted_record = self.prepare_record_row(record)
@@ -783,7 +823,7 @@ class SheetsWriter:
                         formatted_record = self.prepare_record_row(record)
                         formatted_records.append(formatted_record)
                     
-                    range_name = f"'{self.sheet_name}'!A{next_row}:X{next_row + len(batch) - 1}"
+                    range_name = f"'{self.sheet_name}'!A{next_row}:AA{next_row + len(batch) - 1}"
                     body = {
                         'values': formatted_records
                     }

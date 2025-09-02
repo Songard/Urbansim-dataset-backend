@@ -24,6 +24,8 @@ class SheetsDataMapper:
         'file_name': str,
         'upload_time': str,
         'device_id': str,
+        'owner_name': str,
+        'uploader_email': str,
         'file_size': int,
         'file_type': str,
         'extract_status': str,
@@ -84,6 +86,9 @@ class SheetsDataMapper:
         # Extract metadata information
         metadata_info = cls._extract_metadata_info(validation_result)
         sheets_record.update(metadata_info)
+        
+        # Extract owner information
+        sheets_record.update(cls._extract_owner_info(base_record))
         
         # Standardize error messages
         sheets_record.update(cls._standardize_error_messages(validation_result, sheets_record))
@@ -204,6 +209,54 @@ class SheetsDataMapper:
             print(f"Warning: Failed to extract metadata info: {e}")
         
         return metadata_info
+    
+    @classmethod
+    def _extract_owner_info(cls, base_record: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract owner/uploader information from file metadata
+        
+        【字段添加问题分析 - 本次修复的关键环节】
+        这个方法是本次Owner/Uploader字段添加过程中的关键组件。
+        
+        问题发生过程：
+        1. 最初这个方法被正确创建 ✓
+        2. 在map_validation_result中被正确调用 ✓  
+        3. 但是当validation_result=None时，代码走_fill_default_values分支 ✗
+        4. _fill_default_values最初没有调用这个方法 ✗
+        
+        修复方案：
+        1. 确保_fill_default_values也调用此方法提取owner信息
+        2. 确保main.py传递owners数据到base_record
+        
+        Google Drive API owners字段结构：
+        owners: [
+            {
+                'kind': 'drive#user',
+                'displayName': 'username',  -> owner_name
+                'emailAddress': 'email@domain.com',  -> uploader_email
+                'photoLink': '...',
+                'me': false,
+                'permissionId': '...'
+            }
+        ]
+        """
+        owner_info = {
+            'owner_name': '',
+            'uploader_email': ''
+        }
+        
+        try:
+            # Get owners information from the base_record (file metadata)
+            owners = base_record.get('owners', [])
+            if owners and len(owners) > 0:
+                # Use the first owner (primary owner) - typically the file uploader
+                first_owner = owners[0]
+                owner_info['owner_name'] = first_owner.get('displayName', '')
+                owner_info['uploader_email'] = first_owner.get('emailAddress', '')
+        
+        except Exception as e:
+            print(f"Warning: Failed to extract owner info: {e}")
+        
+        return owner_info
     
     @classmethod
     def _format_duration(cls, duration_value: Union[str, float, int]) -> str:
@@ -373,6 +426,8 @@ class SheetsDataMapper:
             'duration': '',
             'location': '',
             'device_id': '',
+            'owner_name': '',
+            'uploader_email': '',
             'scene_type': 'unknown',
             'size_status': 'unknown',
             'pcd_scale': 'unknown',
@@ -385,6 +440,15 @@ class SheetsDataMapper:
         }
         
         sheets_record.update(defaults)
+        
+        # 【关键修复】Extract owner information even when validation_result is None
+        # 这是本次问题的第二个修复点：
+        # 原本只有在validation_result存在时才提取owner信息，
+        # 但当validation_result=None时，代码走这个分支，导致owner信息丢失
+        # 解决方案：无论validation_result是否存在都要提取owner信息
+        owner_info = cls._extract_owner_info(sheets_record)
+        sheets_record.update(owner_info)
+        
         return sheets_record
     
     @classmethod

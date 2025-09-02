@@ -372,14 +372,26 @@ class GoogleDriveMonitorSystem:
             # 4. 写入Google Sheets
             # ===== SHEETS记录契约 =====
             # 这个字典必须符合SheetsRecordContract定义
-            # 所有新增字段必须同时更新：
-            # 1. validation/data_contracts.py中的SheetsRecordContract
-            # 2. sheets/sheets_writer.py中的headers和field_mapping
-            # 3. sheets/data_mapper.py中的提取逻辑
+            #
+            # 【添加新字段完整流程 - 关键检查点】
+            # 如果要添加新字段，必须同时更新以下5个位置：
+            # 1. monitor/drive_monitor.py - 确保API请求包含新字段
+            # 2. 此处sheets_record字典 - 从file_info提取新字段数据
+            # 3. sheets/sheets_writer.py - 添加表头和field_mapping
+            # 4. sheets/data_mapper.py - 添加提取逻辑和默认值
+            # 5. _record_failed_processing方法 - 同步更新失败记录
+            #
+            # 【本次Owner/Uploader字段问题分析】
+            # 问题：虽然1、3、4都完成了，但遗漏了步骤2和5
+            # 症状：表头有Owner/Uploader列，但数据为空
+            # 根因：file_info中的owners数据没有传递到sheets_record
+            # 解决：下面的'owners'字段是修复的关键
+            #
             sheets_record = {
                 'file_id': file_id,
                 'file_name': file_name,
                 'upload_time': file_info.get('createdTime', ''),
+                'owners': file_info.get('owners', []),  # 【关键修复】传递owners数据到mapper
                 'file_size': file_info.get('size', 0),
                 'file_type': file_info.get('mimeType', ''),
                 'extract_status': extract_status,
@@ -465,10 +477,13 @@ class GoogleDriveMonitorSystem:
         """记录处理失败的文件"""
         try:
             # 写入Sheets
+            # 【重要】失败记录也必须包含所有字段，确保与成功记录格式一致
+            # 这里必须与process_file()方法中的sheets_record保持同步更新
             sheets_record = {
                 'file_id': file_info['id'],
                 'file_name': file_info['name'],
                 'upload_time': file_info.get('createdTime', ''),
+                'owners': file_info.get('owners', []),  # 【同步修复】确保失败记录也包含owners信息
                 'file_size': file_info.get('size', 0),
                 'file_type': file_info.get('mimeType', ''),
                 'extract_status': 'Failed',

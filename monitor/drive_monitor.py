@@ -167,7 +167,7 @@ class DriveMonitor:
             # 调用Drive API
             results = self.service.files().list(
                 q=query,
-                fields="nextPageToken, files(id, name, size, mimeType, createdTime, modifiedTime, parents)",
+                fields="nextPageToken, files(id, name, size, mimeType, createdTime, modifiedTime, parents, owners)",
                 orderBy="createdTime desc",
                 pageSize=1000  # 最大页面大小
             ).execute()
@@ -197,7 +197,8 @@ class DriveMonitor:
                     'mimeType': file.get('mimeType', ''),
                     'createdTime': file.get('createdTime', ''),
                     'modifiedTime': file.get('modifiedTime', ''),
-                    'parents': file.get('parents', [])
+                    'parents': file.get('parents', []),
+                    'owners': file.get('owners', [])
                 }
                 new_files.append(file_info)
             
