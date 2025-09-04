@@ -257,10 +257,3 @@ class NewValidator(BaseValidator):
                 f"Decision: {decision}, Errors: {error_count}, Warnings: {warning_count}")
 
 
-# ===== 使用示例 =====
-if __name__ == "__main__":
-    # 测试你的validator
-    validator = NewValidator()
-    result = validator.validate("/path/to/test/data")
-    print(f"Validation result: {result.summary}")
-    print(f"Metadata keys: {list(result.metadata.keys())}")

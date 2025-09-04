@@ -1,7 +1,30 @@
 """
-综合判定和输出模块
+综合判定和输出模块 (Quality Decision and Output Module)
 
-实现基于三大核心指标的质量判定逻辑和结果输出功能
+Implements quality decision logic based on three core metrics for 3D reconstruction assessment:
+
+Quality Decision Logic:
+1. REJECT: Any single metric exceeds critical threshold (immediate failure)
+   - WDD > 8.0: Too many moving objects detected
+   - WPO > 5%: Too much scene coverage by objects  
+   - SAI > 15%: Excessive photographer self-appearance
+
+2. NEED_REVIEW: Two or more metrics exceed problem thresholds (manual review needed)
+   - WDD > 1.0: Moderate moving object activity
+   - WPO > 1%: Noticeable scene coverage
+   - SAI > 3%: Some self-appearance detected
+
+3. PASS: All metrics below problem thresholds (suitable for 3D reconstruction)
+
+4. ERROR: Technical issues during detection process
+
+Metric Quality Levels:
+- Excellent: Minimal interference (WDD<0.2, WPO<0.1%, SAI<0.5%)
+- Acceptable: Minor issues (WDD<0.8, WPO<0.5%, SAI<2%)  
+- Review: Noticeable problems (WDD<2.0, WPO<1.5%, SAI<5%)
+- Reject: Critical issues (exceeds review thresholds)
+
+Scene-specific thresholds supported (indoor/outdoor/default) with different tolerance levels.
 """
 
 import json
@@ -64,19 +87,9 @@ class QualityAssessmentResult:
 class QualityDecisionEngine:
     """质量判定引擎"""
     
-    # 单指标否决阈值（严重超标直接拒绝）
-    REJECT_THRESHOLDS = {
-        "WDD": 8.0,
-        "WPO": 5.0,
-        "SAI": 15.0  # 提高阈值，因为新SAI更敏感
-    }
-    
-    # 问题指标阈值（两个或以上问题指标需复核）
-    PROBLEM_THRESHOLDS = {
-        "WDD": 1.0,
-        "WPO": 1.0,
-        "SAI": 3.0  # 提高阈值，因为新SAI更敏感
-    }
+    # These will be replaced by config-based values
+    REJECT_THRESHOLDS = None
+    PROBLEM_THRESHOLDS = None
     
     def __init__(self, scene_type: str = "default"):
         """
@@ -85,8 +98,13 @@ class QualityDecisionEngine:
         Args:
             scene_type: 场景类型
         """
+        from config import Config
         self.scene_type = scene_type
         self.threshold_manager = ThresholdManager(scene_type)
+        
+        # Initialize thresholds from config
+        self.REJECT_THRESHOLDS = Config.get_reject_thresholds()
+        self.PROBLEM_THRESHOLDS = Config.get_problem_thresholds()
     
     def evaluate_quality(self, metrics: FinalMetrics, 
                         processing_stats: Optional[Dict] = None,

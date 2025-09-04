@@ -1,7 +1,30 @@
 """
-三大核心指标计算模块
+三大核心指标计算模块 (Core Metrics Calculation Module)
 
-实现WDD（加权检测密度）、WPO（加权像素占用率）、SAI（自身入镜指数）的计算
+Implements calculation of three core quality metrics for 3D reconstruction assessment:
+
+WDD (Weighted Detection Density): 加权检测密度
+    - Measures density of person/dog detections weighted by image region importance
+    - Formula: Sum of region-weighted detections across all processed frames
+    - Higher values = more frequent moving objects = potential reconstruction interference
+    - Used to assess overall scene activity level
+
+WPO (Weighted Pixel Occupancy): 加权像素占用率  
+    - Percentage of image pixels occupied by person/dog objects (from segmentation masks)
+    - Formula: (Total weighted occupied pixels / Total image pixels) × 100%
+    - Higher values = larger scene obstruction = worse reconstruction quality
+    - Critical for determining if objects block important scene features
+
+SAI (Self-Appearance Index): 自身入镜指数
+    - Percentage indicating photographer appearing in their own capture
+    - Formula: (Frames with self-appearance / Total frames) × 100%
+    - Higher values = more self-appearance = unwanted artifacts in 3D model
+    - Detected when person appears in bottom-center region with appropriate size
+
+Region Weighting System:
+- Center regions have higher weights (more important for reconstruction)
+- Edge regions have lower weights (less critical areas)
+- Self-appearance zone (bottom-center) has special detection logic
 """
 
 import numpy as np
@@ -56,7 +79,8 @@ class MetricsCalculator:
         self.segmentation_frames_count = 0
         
         # 早期终止检查
-        self.early_termination_threshold = 0.2  # 处理20%后检查
+        from config import Config
+        self.early_termination_threshold = Config.DETECTION_EARLY_TERMINATION_THRESHOLD
         
     def process_detection_frame(self, frame_index: int, detections: Dict) -> FrameMetrics:
         """
@@ -381,8 +405,9 @@ class ThresholdManager:
         Args:
             scene_type: 场景类型 ("indoor", "outdoor", "default")
         """
+        from config import Config
         self.scene_type = scene_type
-        self.thresholds = self._get_scene_thresholds(scene_type)
+        self.thresholds = Config.get_scene_thresholds(scene_type)
     
     def _get_scene_thresholds(self, scene_type: str) -> Dict:
         """根据场景类型获取阈值配置"""

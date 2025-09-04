@@ -1,7 +1,29 @@
 """
-移动障碍物验证器
+移动障碍物验证器 (Transient Object Validator)
 
-集成YOLO11检测系统到现有的验证框架中，专门处理cameras/left和right文件夹中的图片序列
+Integrates YOLO11 detection system into the validation framework to process image sequences 
+from cameras/left and cameras/right folders.
+
+This validator detects and analyzes moving objects (people, dogs) in MetaCam image sequences
+to assess their impact on 3D reconstruction quality using three core metrics:
+
+WDD (Weighted Detection Density): Measures how frequently person/dog objects are detected
+    - Weighted by image region importance (center regions have higher weights)
+    - Higher values = more frequent detection = more interference with reconstruction
+
+WPO (Weighted Pixel Occupancy): Percentage of image pixels occupied by person/dog objects  
+    - Calculated from segmentation masks to determine actual coverage area
+    - Higher values = more scene obstruction = worse reconstruction quality
+
+SAI (Self-Appearance Index): Percentage indicating photographer appearing in their own capture
+    - Detected when person appears in bottom center region with appropriate size
+    - Higher values = more self-appearance artifacts = degraded 3D model quality
+
+Decision Logic:
+- PASS: All metrics below problem thresholds, good for 3D reconstruction
+- NEED_REVIEW: 2+ metrics exceed problem thresholds, manual review recommended  
+- REJECT: Any metric exceeds critical threshold, unsuitable for 3D reconstruction
+- ERROR: Technical issues during detection process
 """
 
 import os
@@ -152,16 +174,18 @@ class TransientValidator(BaseValidator):
         if config is None:
             config = {}
         
+        # Use centralized config for detection parameters
+        from config import Config
         self.detection_config = DetectionConfig(
-            model_name=config.get('model_name', 'yolo11n.pt'),
-            conf_threshold=config.get('conf_threshold', 0.35),
-            device=config.get('device', 'cpu'),
+            model_name=config.get('model_name', Config.YOLO_MODEL_NAME),
+            conf_threshold=config.get('conf_threshold', Config.YOLO_CONF_THRESHOLD),
+            device=config.get('device', Config.YOLO_DEVICE),
             scene_type=config.get('scene_type', 'default'),
-            target_detection_frames=config.get('target_detection_frames', 100),
-            target_segmentation_frames=config.get('target_segmentation_frames', 50),
-            enable_early_termination=config.get('enable_early_termination', True),
-            max_workers=config.get('max_workers', 2),
-            memory_limit_mb=config.get('memory_limit_mb', 1024),
+            target_detection_frames=config.get('target_detection_frames', Config.DETECTION_TARGET_DETECTION_FRAMES),
+            target_segmentation_frames=config.get('target_segmentation_frames', Config.DETECTION_TARGET_SEGMENTATION_FRAMES),
+            enable_early_termination=config.get('enable_early_termination', Config.DETECTION_ENABLE_EARLY_TERMINATION),
+            max_workers=config.get('max_workers', Config.DETECTION_MAX_WORKERS),
+            memory_limit_mb=config.get('memory_limit_mb', Config.DETECTION_MEMORY_LIMIT_MB),
             output_format='compact'
         )
         
@@ -678,45 +702,46 @@ class TransientValidator(BaseValidator):
     
     def _calculate_transient_score(self, assessment: QualityAssessmentResult) -> float:
         """基于检测评估计算验证分数"""
-        base_score = 100.0
+        from config import Config
+        base_score = Config.VALIDATION_BASE_SCORE
         
         # 根据检测决策扣分
         if assessment.decision == QualityDecision.REJECT:
-            base_score -= 50.0
+            base_score -= Config.TRANSIENT_REJECT_SCORE_PENALTY
         elif assessment.decision == QualityDecision.NEED_REVIEW:
-            base_score -= 25.0
+            base_score -= Config.TRANSIENT_REVIEW_SCORE_PENALTY
         elif assessment.decision == QualityDecision.ERROR:
-            base_score -= 60.0
+            base_score -= Config.TRANSIENT_ERROR_SCORE_PENALTY
         
         # 根据具体指标进一步调整分数
         metrics = assessment.metrics
         
         # WDD指标影响
         wdd = metrics.get('WDD', 0)
-        if wdd >= 8.0:
-            base_score -= 30.0
-        elif wdd >= 5.0:
-            base_score -= 15.0
-        elif wdd >= 2.0:
-            base_score -= 5.0
+        if wdd >= Config.TRANSIENT_WDD_SEVERE_THRESHOLD:
+            base_score -= Config.TRANSIENT_WDD_SEVERE_PENALTY
+        elif wdd >= Config.TRANSIENT_WDD_HIGH_THRESHOLD:
+            base_score -= Config.TRANSIENT_WDD_HIGH_PENALTY
+        elif wdd >= Config.TRANSIENT_WDD_MEDIUM_THRESHOLD:
+            base_score -= Config.TRANSIENT_WDD_MEDIUM_PENALTY
         
         # WPO指标影响
         wpo = metrics.get('WPO', 0)
-        if wpo >= 30.0:
-            base_score -= 25.0
-        elif wpo >= 20.0:
-            base_score -= 12.0
-        elif wpo >= 10.0:
-            base_score -= 3.0
+        if wpo >= Config.TRANSIENT_WPO_SEVERE_THRESHOLD:
+            base_score -= Config.TRANSIENT_WPO_SEVERE_PENALTY
+        elif wpo >= Config.TRANSIENT_WPO_HIGH_THRESHOLD:
+            base_score -= Config.TRANSIENT_WPO_HIGH_PENALTY
+        elif wpo >= Config.TRANSIENT_WPO_MEDIUM_THRESHOLD:
+            base_score -= Config.TRANSIENT_WPO_MEDIUM_PENALTY
         
         # SAI指标影响
         sai = metrics.get('SAI', 0)
-        if sai >= 25.0:
-            base_score -= 20.0
-        elif sai >= 15.0:
-            base_score -= 10.0
-        elif sai >= 5.0:
-            base_score -= 2.0
+        if sai >= Config.TRANSIENT_SAI_SEVERE_THRESHOLD:
+            base_score -= Config.TRANSIENT_SAI_SEVERE_PENALTY
+        elif sai >= Config.TRANSIENT_SAI_HIGH_THRESHOLD:
+            base_score -= Config.TRANSIENT_SAI_HIGH_PENALTY
+        elif sai >= Config.TRANSIENT_SAI_MEDIUM_THRESHOLD:
+            base_score -= Config.TRANSIENT_SAI_MEDIUM_PENALTY
         
         return max(0.0, base_score)
     

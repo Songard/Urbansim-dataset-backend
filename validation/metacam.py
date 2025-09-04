@@ -186,7 +186,8 @@ class MetaCamValidator(BaseValidator):
             if os.path.exists(indicator_path):
                 found_count += 1
         
-        return found_count >= 2  # Require at least 2 indicators
+        from config import Config
+        return found_count >= Config.METACAM_MIN_INDICATORS_REQUIRED
     
     def _validate_directory_structure(self, root_path: str, errors: List[str], 
                                     warnings: List[str], missing_directories: List[str]):
@@ -448,18 +449,19 @@ class MetaCamValidator(BaseValidator):
                     metadata_info['duration_seconds'] = duration_seconds
                     duration_minutes = duration_seconds / 60
                     
-                    # Duration validation logic
-                    if duration_seconds < 180:  # Less than 3 minutes
-                        errors.append(f"Duration too short ({duration_minutes:.1f} min): Less than 3 minutes indicates insufficient data")
+                    # Duration validation logic using config parameters
+                    from config import Config
+                    if duration_seconds < Config.METACAM_DURATION_MIN_SECONDS:
+                        errors.append(f"Duration too short ({duration_minutes:.1f} min): Less than {Config.METACAM_DURATION_MIN_SECONDS/60:.1f} minutes indicates insufficient data")
                         metadata_info['duration_status'] = 'error_too_short'
-                    elif duration_seconds > 540:  # More than 9 minutes  
-                        errors.append(f"Duration too long ({duration_minutes:.1f} min): More than 9 minutes may indicate recording issues")
+                    elif duration_seconds > Config.METACAM_DURATION_MAX_SECONDS:
+                        errors.append(f"Duration too long ({duration_minutes:.1f} min): More than {Config.METACAM_DURATION_MAX_SECONDS/60:.1f} minutes may indicate recording issues")
                         metadata_info['duration_status'] = 'error_too_long'
-                    elif duration_seconds < 270:  # Less than 4.5 minutes
-                        warnings.append(f"Duration potentially short ({duration_minutes:.1f} min): Less than 4.5 minutes may be insufficient")
+                    elif duration_seconds < Config.METACAM_DURATION_WARNING_MIN_SECONDS:
+                        warnings.append(f"Duration potentially short ({duration_minutes:.1f} min): Less than {Config.METACAM_DURATION_WARNING_MIN_SECONDS/60:.1f} minutes may be insufficient")
                         metadata_info['duration_status'] = 'warning_short'
-                    elif duration_seconds > 420:  # More than 7 minutes
-                        warnings.append(f"Duration potentially long ({duration_minutes:.1f} min): More than 7 minutes may be excessive")
+                    elif duration_seconds > Config.METACAM_DURATION_WARNING_MAX_SECONDS:
+                        warnings.append(f"Duration potentially long ({duration_minutes:.1f} min): More than {Config.METACAM_DURATION_WARNING_MAX_SECONDS/60:.1f} minutes may be excessive")
                         metadata_info['duration_status'] = 'warning_long'
                     else:
                         metadata_info['duration_status'] = 'optimal'

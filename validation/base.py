@@ -5,6 +5,14 @@ Defines the core interfaces and base classes for the validation system.
 This provides a foundation for implementing different validation strategies
 and scoring algorithms.
 
+Key Validation Metrics (for transient object detection):
+- WDD (Weighted Detection Density): Measures frequency of person/dog detections across image regions
+  Higher values indicate more moving objects that could interfere with 3D reconstruction
+- WPO (Weighted Pixel Occupancy): Percentage of image area covered by person/dog objects
+  Higher values mean objects block more of the scene, affecting reconstruction quality  
+- SAI (Self-Appearance Index): Percentage indicating photographer visibility in their own images
+  Higher values create unwanted artifacts in 3D models as the photographer shouldn't be in the scene
+
 数据契约说明：
 - 所有validator必须返回符合STANDARD_METADATA_FORMAT的ValidationResult
 - metadata必须包含{validator_name}_validation字段
@@ -151,12 +159,14 @@ class BaseValidator(ABC):
         Returns:
             float: Score from 0.0 to 100.0
         """
-        base_score = 100.0
+        # Use centralized config for scoring weights
+        from config import Config
+        base_score = Config.VALIDATION_BASE_SCORE
         
-        # Default scoring weights (can be customized per validator)
-        error_weight = self.config.get('error_weight', 15)
-        warning_weight = self.config.get('warning_weight', 3)
-        missing_weight = self.config.get('missing_weight', 10)
+        # Get weights from config (allow validator-specific override)
+        error_weight = self.config.get('error_weight', Config.VALIDATION_ERROR_WEIGHT)
+        warning_weight = self.config.get('warning_weight', Config.VALIDATION_WARNING_WEIGHT)
+        missing_weight = self.config.get('missing_weight', Config.VALIDATION_MISSING_WEIGHT)
         
         # Calculate penalties
         error_penalty = len(errors) * error_weight
@@ -188,11 +198,13 @@ class BaseValidator(ABC):
         
         elif validation_level == ValidationLevel.STANDARD:
             # Allow minor issues but not critical errors
+            from config import Config
             critical_errors = [e for e in errors if self._is_critical_error(e)]
-            return len(critical_errors) == 0 and len(missing_files) <= 2
+            return len(critical_errors) == 0 and len(missing_files) <= Config.VALIDATION_STANDARD_MAX_MISSING_FILES
         
         else:  # LENIENT
-            return len(errors) <= 5
+            from config import Config
+            return len(errors) <= Config.VALIDATION_LENIENT_MAX_ERRORS
     
     def _is_critical_error(self, error: str) -> bool:
         """

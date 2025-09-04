@@ -1,7 +1,29 @@
 """
-区域定义和权重计算模块
+区域定义和权重计算模块 (Image Region Management Module)
 
-实现图像区域划分、权重分配和坐标计算功能
+Implements image region division, weight assignment, and coordinate calculation for quality assessment.
+
+Region Weighting System:
+- Center regions: Higher weights (more important for 3D reconstruction)
+- Edge regions: Lower weights (less critical for reconstruction quality)
+- Used for calculating WDD (Weighted Detection Density) and WPO (Weighted Pixel Occupancy)
+
+Self-Appearance Detection Zone:
+- Bottom-center region where photographer typically appears
+- Used for SAI (Self-Appearance Index) calculation
+- Detection criteria:
+  * Position: Bottom 40% of image, center horizontal area
+  * Size: 1-15% of total image area (optimal ~5%)
+  * Shape: Person-like aspect ratio
+
+Self-Appearance Scoring Factors:
+- Position weight (40%): Lower in image = higher score
+- Size weight (30%): Appropriate human size = higher score  
+- Centrality weight (20%): Closer to horizontal center = higher score
+- Zone bonus (10%): Inside designated self-zone = bonus points
+
+This system enables precise detection of photographer self-appearance which creates
+unwanted artifacts in 3D reconstruction models.
 """
 
 import math
@@ -188,17 +210,20 @@ class RegionManager:
         return False
     
     def is_large_detection_in_self_zone(self, bbox: Tuple[float, float, float, float], 
-                                       area_threshold: float = 0.02) -> bool:
+                                       area_threshold: float = None) -> bool:
         """
         检查是否是在自身入镜区域的大型检测（降低阈值提高敏感度）
         
         Args:
             bbox: 边界框 (x1, y1, x2, y2)
-            area_threshold: 面积阈值（占画面比例，降低到2%）
+            area_threshold: 面积阈值（占画面比例，默认使用配置值）
             
         Returns:
             是否符合自身入镜条件
         """
+        from config import Config
+        if area_threshold is None:
+            area_threshold = Config.REGION_SELF_AREA_THRESHOLD
         x1, y1, x2, y2 = bbox
         
         center_x = (x1 + x2) / 2
@@ -235,28 +260,31 @@ class RegionManager:
         # 初始得分
         score = 0.0
         
+        # Use centralized config for scoring parameters
+        from config import Config
+        
         # 1. 位置得分：在画面下方得分更高
         y_ratio = center_y / self.img_height
-        if y_ratio > 0.6:  # 下方60%区域
-            position_score = (y_ratio - 0.6) / 0.4  # 0.6-1.0映射到0-1
-            score += position_score * 0.4  # 位置权重40%
+        if y_ratio > Config.REGION_SELF_POSITION_THRESHOLD:
+            position_score = (y_ratio - Config.REGION_SELF_POSITION_THRESHOLD) / (1.0 - Config.REGION_SELF_POSITION_THRESHOLD)
+            score += position_score * Config.REGION_SELF_POSITION_WEIGHT
         
         # 2. 大小得分：适中大小得分更高
-        if area_ratio > 0.01:  # 至少1%画面
-            if area_ratio <= 0.15:  # 1%-15%为合理范围
-                size_score = min(area_ratio / 0.05, 1.0)  # 5%时达到满分
-            else:  # 超过15%开始降分
-                size_score = max(0.5, 1.0 - (area_ratio - 0.15) / 0.35)
-            score += size_score * 0.3  # 大小权重30%
+        if area_ratio > Config.REGION_SELF_MIN_AREA_RATIO:
+            if area_ratio <= Config.REGION_SELF_MAX_GOOD_AREA_RATIO:
+                size_score = min(area_ratio / Config.REGION_SELF_OPTIMAL_AREA_RATIO, 1.0)
+            else:
+                size_score = max(0.5, 1.0 - (area_ratio - Config.REGION_SELF_MAX_GOOD_AREA_RATIO) / Config.REGION_SELF_PENALTY_AREA_RATIO)
+            score += size_score * Config.REGION_SELF_SIZE_WEIGHT
         
         # 3. 中心性得分：靠近画面中央水平位置
         x_center_distance = abs(center_x - self.img_width / 2) / (self.img_width / 2)
         centrality_score = 1.0 - x_center_distance
-        score += centrality_score * 0.2  # 中心性权重20%
+        score += centrality_score * Config.REGION_SELF_CENTRALITY_WEIGHT
         
         # 4. 自身区域得分：在定义的自身区域内
         if self._is_in_self_zone(center_x, center_y):
-            score += 0.1  # 自身区域额外10%
+            score += Config.REGION_SELF_ZONE_BONUS
         
         return min(score, 1.0)  # 确保不超过1.0
     

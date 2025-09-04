@@ -25,9 +25,9 @@ class YOLODetector:
     TARGET_CLASSES = [PERSON_CLASS, DOG_CLASS]
     CLASS_NAMES = {PERSON_CLASS: "person", DOG_CLASS: "dog"}
     
-    def __init__(self, model_name: str = "yolo11n.pt", 
-                 conf_threshold: float = 0.35,
-                 device: str = "cpu"):
+    def __init__(self, model_name: str = None, 
+                 conf_threshold: float = None,
+                 device: str = None):
         """
         初始化YOLO检测器
         
@@ -39,9 +39,11 @@ class YOLODetector:
         if YOLO is None:
             raise ImportError("ultralytics package is required. Please install: pip install ultralytics")
         
-        self.model_name = model_name
-        self.conf_threshold = conf_threshold
-        self.device = device
+        # Use centralized config with parameter override
+        from config import Config
+        self.model_name = model_name or Config.YOLO_MODEL_NAME
+        self.conf_threshold = conf_threshold if conf_threshold is not None else Config.YOLO_CONF_THRESHOLD
+        self.device = device or Config.YOLO_DEVICE
         self.model = None
         self.seg_model = None
         
@@ -252,7 +254,8 @@ class YOLODetector:
                     mask = masks_data[i]
                     
                     # 计算掩码面积
-                    mask_area = np.sum(mask > 0.5)
+                    from config import Config
+                    mask_area = np.sum(mask > Config.REGION_MASK_THRESHOLD)
                     total_pixels = mask.shape[0] * mask.shape[1]
                     area_ratio = mask_area / total_pixels if total_pixels > 0 else 0
                     
@@ -292,19 +295,23 @@ class YOLODetector:
         return segmentations
     
     def _extract_mask_points(self, mask: np.ndarray, 
-                           sample_ratio: float = 0.1) -> List[Tuple[float, float]]:
+                           sample_ratio: float = None) -> List[Tuple[float, float]]:
         """
         从掩码中提取采样点
         
         Args:
             mask: 二值掩码
-            sample_ratio: 采样比例
+            sample_ratio: 采样比例，默认使用配置值
             
         Returns:
             采样点列表
         """
+        from config import Config
+        if sample_ratio is None:
+            sample_ratio = Config.REGION_MASK_SAMPLE_RATIO
+            
         # 找到掩码中的非零点
-        y_coords, x_coords = np.where(mask > 0.5)
+        y_coords, x_coords = np.where(mask > Config.REGION_MASK_THRESHOLD)
         
         if len(x_coords) == 0:
             return []
