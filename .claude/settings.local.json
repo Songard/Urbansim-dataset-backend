@@ -9,7 +9,19 @@
       "Bash(dir temp)",
       "Bash(git reset:*)",
       "Bash(pip install:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Read(/C:\\Users\\15436\\Documents\\MyPrograms\\Urbansim\\processors/**)",
+      "Read(/C:\\Users\\15436\\Documents\\MyPrograms\\Urbansim\\data/**)",
+      "Read(/C:\\Users\\15436\\Documents\\MyPrograms\\Urbansim\\processors/**)",
+      "Read(/C:\\Users\\15436\\Documents\\MyPrograms\\Urbansim\\processors/**)",
+      "Read(/C:\\Users\\15436\\Documents\\MyPrograms\\Urbansim\\processors/**)",
+      "Read(/C:\\Users\\15436\\Documents\\MyPrograms\\Urbansim\\validation/**)",
+      "Read(/C:\\Users\\15436\\Documents\\MyPrograms\\Urbansim\\processors/**)",
+      "Read(/C:\\Users\\15436\\Documents\\MyPrograms\\Urbansim\\processors/**)",
+      "Read(/C:\\Users\\15436\\Documents\\MyPrograms\\Urbansim\\processors/**)",
+      "Read(/C:\\Users\\15436\\Documents\\MyPrograms\\Urbansim\\processors/**)",
+      "Read(/C:\\Users\\15436\\Documents\\MyPrograms\\Urbansim\\processors/**)",
+      "Read(/C:\\Users\\15436\\Documents\\MyPrograms\\Urbansim/**)"
     ],
     "deny": [],
     "defaultMode": "acceptEdits"

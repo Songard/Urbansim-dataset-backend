@@ -21,10 +21,11 @@ except ImportError as e:
     EMAIL_MODULE_AVAILABLE = False
 from monitor.drive_monitor import DriveMonitor
 from monitor.file_tracker import FileTracker
-from processors.file_downloader import FileDownloader
-from processors.archive_handler import ArchiveHandler
+from monitor.file_downloader import FileDownloader
+from monitor.archive_handler import ArchiveHandler
 from sheets.sheets_writer import SheetsWriter
 from validation.manager import ValidationManager
+from processors.data_processor import DataProcessor
 from utils.error_formatter import ErrorFormatter
 
 logger = get_logger(__name__)
@@ -58,6 +59,7 @@ class GoogleDriveMonitorSystem:
         self.sheets_writer = None
         self.email_notifier = None
         self.validation_manager = None
+        self.data_processor = None
         self.running = True
         self.stats = {
             'files_processed': 0,
@@ -95,6 +97,7 @@ class GoogleDriveMonitorSystem:
             self.archive_handler = ArchiveHandler()
             self.sheets_writer = SheetsWriter()
             self.validation_manager = ValidationManager()
+            self.data_processor = DataProcessor()
             
             # 初始化邮件通知器（如果启用且可用）
             if Config.EMAIL_NOTIFICATIONS_ENABLED and EMAIL_MODULE_AVAILABLE:
@@ -420,6 +423,89 @@ class GoogleDriveMonitorSystem:
             else:
                 logger.warning(f"Sheets write failed, but file processed successfully: {file_name}")
             
+            # 4. 数据处理阶段（在验证通过后自动启动）
+            processing_results = None
+            processing_status = "未执行"
+            
+            if Config.AUTO_START_PROCESSING and data_validation_result and data_validation_result.get('is_valid', False):
+                logger.info(f"开始数据处理: {file_name}")
+                try:
+                    # 准备处理结果字典
+                    validation_for_processing = {
+                        'is_valid': data_validation_result.get('is_valid', False),
+                        'score': data_validation_result.get('score', 0),
+                        'metadata': data_validation_result.get('metadata', {}),
+                        'validation_type': data_validation_result.get('validator_type', 'unknown')
+                    }
+                    
+                    # 确定处理的数据路径
+                    # 如果是压缩文件，使用解压后的路径；否则使用下载路径
+                    processing_path = None
+                    if 'validation_result' in locals() and validation_result and validation_result.get('is_valid'):
+                        # 从archive_handler的验证结果中获取解压路径
+                        # 需要重新解压或使用临时解压路径
+                        temp_extract_path = self.archive_handler.extract_archive(download_path)
+                        if temp_extract_path:
+                            processing_path = temp_extract_path
+                            logger.info(f"使用解压路径进行处理: {processing_path}")
+                        else:
+                            logger.warning("无法解压文件用于数据处理")
+                    
+                    if processing_path:
+                        processing_results = self.data_processor.process_validated_data(
+                            processing_path, validation_for_processing
+                        )
+                        
+                        if processing_results['overall_success']:
+                            processing_status = "成功"
+                            logger.success(f"数据处理完成: {file_name}")
+                            
+                            # 记录处理步骤信息
+                            for step in processing_results.get('processing_steps', []):
+                                step_name = step.get('step', 'unknown')
+                                step_result = step.get('result', {})
+                                step_success = step_result.get('success', False)
+                                step_duration = step_result.get('duration', 0)
+                                
+                                # Format duration display
+                                if step_duration >= 3600:  # >= 1 hour
+                                    hours = int(step_duration // 3600)
+                                    minutes = int((step_duration % 3600) // 60)
+                                    duration_str = f"{hours}h {minutes}m"
+                                elif step_duration >= 60:  # >= 1 minute
+                                    minutes = int(step_duration // 60)
+                                    seconds = step_duration % 60
+                                    duration_str = f"{minutes}m {seconds:.1f}s"
+                                else:
+                                    duration_str = f"{step_duration:.2f}s"
+                                
+                                status_icon = "✓" if step_success else "✗"
+                                logger.info(f"  {step_name}: {status_icon} ({duration_str})")
+                        else:
+                            processing_status = "失败"
+                            errors = processing_results.get('errors', [])
+                            logger.error(f"数据处理失败: {'; '.join(errors)}")
+                    else:
+                        processing_status = "跳过（无法获取数据路径）"
+                        logger.warning("跳过数据处理：无法确定数据路径")
+                        
+                except Exception as e:
+                    processing_status = f"异常: {str(e)}"
+                    logger.error(f"数据处理过程中出现异常: {e}")
+            else:
+                if not Config.AUTO_START_PROCESSING:
+                    processing_status = "已禁用"
+                    logger.info("数据处理已禁用")
+                elif not data_validation_result or not data_validation_result.get('is_valid', False):
+                    processing_status = "跳过（验证未通过）"
+                    logger.info("跳过数据处理：数据验证未通过")
+                else:
+                    processing_status = "跳过（条件不满足）"
+                    logger.info("跳过数据处理：条件不满足")
+            
+            # 更新sheets记录以包含处理状态（如果需要的话）
+            # 注意：这里可以选择再次更新Sheets记录以包含处理结果
+            
             # 发送成功通知邮件
             if self.email_notifier and Config.NOTIFY_ON_SUCCESS:
                 # 检查是否为大文件
@@ -429,7 +515,7 @@ class GoogleDriveMonitorSystem:
                 elif not is_large_file:  # 普通文件根据配置发送
                     self.email_notifier.notify_file_processed(file_info, True)
             
-            # 4. 更新文件追踪记录
+            # 5. 更新文件追踪记录（包含处理状态）
             self.file_tracker.add_processed_file(
                 file_id, 
                 file_name, 
@@ -438,11 +524,13 @@ class GoogleDriveMonitorSystem:
                     'download_path': str(download_path),
                     'extract_status': extract_status,
                     'file_count': file_count,
-                    'process_time': (datetime.now() - process_start_time).total_seconds()
+                    'process_time': (datetime.now() - process_start_time).total_seconds(),
+                    'processing_status': processing_status,
+                    'processing_results': processing_results
                 }
             )
             
-            # 5. 移动文件到processed目录
+            # 6. 移动文件到processed目录
             if Config.CLEAN_TEMP_FILES:
                 processed_path = Path(Config.PROCESSED_PATH) / file_name
                 try:

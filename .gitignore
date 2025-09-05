@@ -366,3 +366,23 @@ deploy_temp/
 # Documentation builds
 docs/build/
 docs/dist/
+
+# ========================================
+# Data Processing Executables
+# ========================================
+
+# Windows executables for data processing
+processors/exe_packages/*.exe
+processors/exe_packages/*.msi
+processors/exe_packages/*.installer
+processors/exe_packages/*.setup
+processors/**/*.exe
+processors/**/*.dll
+processors/**/*.bat
+processors/**/*.cmd
+processors/**/*.cfg
+
+# Processing configuration and temporary files
+processors/config/
+processors/temp/
+processors/output/

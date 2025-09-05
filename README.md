@@ -1,14 +1,16 @@
 # MetaCam Data Processing System
 
-An automated system for monitoring Google Drive uploads, processing MetaCam 3D reconstruction data packages, and performing comprehensive data validation with real-time results tracking in Google Sheets.
+A complete end-to-end system for monitoring Google Drive uploads, performing comprehensive data validation, and executing automated 3D reconstruction processing of MetaCam data packages with real-time results tracking in Google Sheets.
 
 ## System Overview
 
-This system provides end-to-end processing of MetaCam data packages from Google Drive upload to validated data analysis, featuring:
+This system provides end-to-end processing of MetaCam data packages from Google Drive upload to final 3D reconstruction output, featuring:
 
 - **Automated Google Drive Monitoring**: Real-time detection of new data uploads
 - **Comprehensive Data Validation**: Multi-stage validation pipeline ensuring data quality
 - **AI-Powered Quality Assessment**: YOLO11-based transient object detection
+- **Automated 3D Reconstruction Processing**: Integrated Windows executable pipeline
+- **Intelligent Scene Detection**: Automatic scene type determination for optimal processing
 - **Real-time Results Tracking**: Automated Google Sheets integration with detailed metrics
 - **Email Notifications**: Optional alerts for processing status and system health
 - **Robust Error Handling**: Detailed error reporting and graceful failure recovery
@@ -28,6 +30,11 @@ MetaCam Data Processing System
 │   ├── MetaCam Format Validator
 │   ├── Transient Object Detector
 │   └── Quality Metrics Calculator
+├── 📁 Processing Pipeline
+│   ├── Data Processor Orchestrator
+│   ├── validation_generator.exe
+│   ├── metacam_cli.exe
+│   └── Scene Type Detection
 ├── 📁 Data Output
 │   ├── Google Sheets Writer
 │   ├── Error Formatter
@@ -41,13 +48,25 @@ MetaCam Data Processing System
 ### Data Flow
 
 ```
-Google Drive Upload → Download → Extract → Validate → Analyze → Report
+Google Drive Upload → Download → Extract → Validate → Process → Report
                                      ↓
                             [MetaCam Validator]
                                      ↓
                             [Transient Detector] 
                                      ↓
                             [Quality Assessment]
+                                     ↓
+                          [✓ Validation Passed?]
+                                     ↓
+                          [Auto Data Processing]
+                                     ↓
+                         [validation_generator.exe]
+                                     ↓
+                           [Scene Type Detection]
+                                     ↓
+                            [metacam_cli.exe]
+                                     ↓
+                         [3D Reconstruction Output]
                                      ↓
                             [Google Sheets Update]
 ```
@@ -59,6 +78,9 @@ Google Drive Upload → Download → Extract → Validate → Analyze → Report
 - **Smart Download Management**: Optimized chunked downloads with retry logic
 - **Archive Processing**: Support for multiple compression formats (.zip, .rar, .7z, etc.)
 - **Password Handling**: Automatic password attempts for protected archives
+- **Automated 3D Reconstruction**: Coordinated execution of validation_generator.exe and metacam_cli.exe
+- **Intelligent Scene Detection**: Automatic outdoor/indoor/narrow scene classification for optimal processing
+- **Unified Path Management**: Both processing tools receive the same data package root directory
 
 ### 🔍 Advanced Validation
 - **Schema Validation**: MetaCam data package structure verification
@@ -418,5 +440,5 @@ For technical support or questions:
 
 ---
 
-*Last Updated: 2024-08-15*  
-*Version: 3.0 - Complete MetaCam processing pipeline with AI quality assessment*
+*Last Updated: 2025-09-04*  
+*Version: 3.1 - Enhanced processing pipeline with corrected path handling and improved documentation*

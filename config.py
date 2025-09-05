@@ -236,6 +236,36 @@ class Config:
     TRANSIENT_SAI_MEDIUM_THRESHOLD = float(os.getenv('TRANSIENT_SAI_MEDIUM_THRESHOLD', '5.0'))
     TRANSIENT_SAI_MEDIUM_PENALTY = float(os.getenv('TRANSIENT_SAI_MEDIUM_PENALTY', '2.0'))
     
+    # ========================================
+    # 数据处理配置 (Data Processing Configuration)
+    # ========================================
+    
+    # 处理程序路径配置
+    PROCESSORS_EXE_PATH = os.getenv('PROCESSORS_EXE_PATH', './processors/exe_packages')
+    
+    # 处理超时配置（秒）
+    PROCESSING_TIMEOUT_SECONDS = int(os.getenv('PROCESSING_TIMEOUT_SECONDS', '600'))  # 10分钟
+    
+    # 是否在验证通过后自动启动数据处理
+    AUTO_START_PROCESSING = os.getenv('AUTO_START_PROCESSING', 'True').lower() == 'true'
+    
+    # 处理失败时的重试次数
+    PROCESSING_RETRY_ATTEMPTS = int(os.getenv('PROCESSING_RETRY_ATTEMPTS', '2'))
+    
+    # 处理完成后是否保留原始数据
+    KEEP_ORIGINAL_DATA = os.getenv('KEEP_ORIGINAL_DATA', 'True').lower() == 'true'
+    
+    # 处理输出目录
+    PROCESSING_OUTPUT_PATH = os.getenv('PROCESSING_OUTPUT_PATH', './processed/output')
+    
+    # Metacam CLI 处理配置
+    METACAM_CLI_MODE = os.getenv('METACAM_CLI_MODE', '0')  # 0=fast, 1=precision
+    METACAM_CLI_COLOR = os.getenv('METACAM_CLI_COLOR', '1')  # 0=No, 1=Yes
+    METACAM_CLI_TIMEOUT_SECONDS = 55 # int(os.getenv('METACAM_CLI_TIMEOUT_SECONDS', '3600'))  # 1小时
+    
+    # 场景类型判断阈值（用于自动选择scene参数）
+    INDOOR_SCALE_THRESHOLD_M = float(os.getenv('INDOOR_SCALE_THRESHOLD_M', '30'))  # 30米以下认为是narrow场景
+    
     # 获取场景特定阈值的辅助方法
     @classmethod
     def get_scene_thresholds(cls, scene_type: str) -> dict:
@@ -328,6 +358,8 @@ class Config:
         # 创建必要的目录
         os.makedirs(cls.DOWNLOAD_PATH, exist_ok=True)
         os.makedirs(cls.PROCESSED_PATH, exist_ok=True)
+        os.makedirs(cls.PROCESSING_OUTPUT_PATH, exist_ok=True)
+        os.makedirs(cls.PROCESSORS_EXE_PATH, exist_ok=True)
         os.makedirs(os.path.dirname(cls.LOG_FILE), exist_ok=True)
         os.makedirs('data', exist_ok=True)
         

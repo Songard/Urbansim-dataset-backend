@@ -1,1 +1,1 @@
-# Monitor module for Google Drive file monitoring
+# Monitor module for Google Drive file monitoring and processing
