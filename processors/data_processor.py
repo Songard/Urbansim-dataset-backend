@@ -9,6 +9,9 @@ import os
 import subprocess
 import tempfile
 import shutil
+import threading
+import select
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
@@ -218,60 +221,152 @@ class DataProcessor:
         logger.info(f"Executing command: {command_str}")
         
         try:
-            start_time = datetime.now()
-            
-            # Execute with controlled environment
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=Config.PROCESSING_TIMEOUT_SECONDS,
-                cwd=self.validation_generator_path.parent,  # Set working directory to exe location
-                shell=False
+            # Use the new real-time output method
+            result = self._run_process_with_realtime_output(
+                command=command,
+                command_str=command_str,
+                timeout_seconds=Config.PROCESSING_TIMEOUT_SECONDS,
+                cwd=str(self.validation_generator_path.parent)
             )
             
-            end_time = datetime.now()
-            duration = (end_time - start_time).total_seconds()
-            
             # Track processed files count for summary
-            output_lines = result.stdout.strip().split('\n') if result.stdout else []
+            output_lines = result.output.strip().split('\n') if result.output else []
             processed_files_count = sum(1 for line in output_lines if line.strip().startswith('file: No.'))
             
             if processed_files_count > 0:
                 logger.info(f"validation_generator processed {processed_files_count} files")
             
-            # Log any errors from stderr
-            if result.stderr and result.stderr.strip():
-                logger.warning(f"validation_generator warnings/errors: {result.stderr.strip()}")
-            
-            # Determine success based on return code and output
-            success = result.returncode == 0
-            
-            if success:
-                logger.info(f"validation_generator completed successfully in {duration:.2f}s")
+            if result.success:
+                logger.info(f"validation_generator completed successfully in {result.duration:.2f}s")
             else:
-                logger.error(f"validation_generator failed with return code {result.returncode}")
+                logger.error(f"validation_generator failed with return code {result.return_code}")
             
-            return ProcessingResult(
-                success=success,
-                command=command_str,
-                output=result.stdout or "",
-                error=result.stderr or "",
-                return_code=result.returncode,
-                duration=duration
-            )
+            return result
             
-        except subprocess.TimeoutExpired:
-            error_msg = f"validation_generator timed out after {Config.PROCESSING_TIMEOUT_SECONDS} seconds"
+        except Exception as e:
+            error_msg = f"Failed to execute validation_generator: {e}"
             logger.error(error_msg)
             return ProcessingResult(
                 success=False,
                 command=command_str,
                 error=error_msg
             )
+    
+    def _run_process_with_realtime_output(self, command: List[str], command_str: str, 
+                                        timeout_seconds: int, cwd: Optional[str] = None) -> ProcessingResult:
+        """
+        Execute a subprocess with real-time output display
+        
+        Args:
+            command: List of command arguments
+            command_str: String representation of command for logging
+            timeout_seconds: Timeout in seconds
+            cwd: Working directory
+            
+        Returns:
+            ProcessingResult with execution details
+        """
+        logger.info(f"Executing command: {command_str}")
+        
+        try:
+            start_time = datetime.now()
+            
+            # Start process with pipes for real-time output
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=cwd,
+                shell=False,
+                bufsize=1,
+                universal_newlines=True
+            )
+            
+            stdout_lines = []
+            stderr_lines = []
+            
+            def read_stdout():
+                try:
+                    for line in iter(process.stdout.readline, ''):
+                        if line:
+                            line = line.rstrip('\n\r')
+                            stdout_lines.append(line)
+                            logger.info(f"[STDOUT] {line}")
+                    process.stdout.close()
+                except Exception as e:
+                    logger.error(f"Error reading stdout: {e}")
+            
+            def read_stderr():
+                try:
+                    for line in iter(process.stderr.readline, ''):
+                        if line:
+                            line = line.rstrip('\n\r')
+                            stderr_lines.append(line)
+                            logger.warning(f"[STDERR] {line}")
+                    process.stderr.close()
+                except Exception as e:
+                    logger.error(f"Error reading stderr: {e}")
+            
+            # Start threads to read stdout and stderr
+            stdout_thread = threading.Thread(target=read_stdout)
+            stderr_thread = threading.Thread(target=read_stderr)
+            
+            stdout_thread.daemon = True
+            stderr_thread.daemon = True
+            
+            stdout_thread.start()
+            stderr_thread.start()
+            
+            # Wait for process completion or timeout
+            try:
+                return_code = process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                end_time = datetime.now()
+                duration = (end_time - start_time).total_seconds()
+                
+                error_msg = f"Process timed out after {timeout_seconds} seconds"
+                logger.error(error_msg)
+                return ProcessingResult(
+                    success=False,
+                    command=command_str,
+                    output="\n".join(stdout_lines),
+                    error=error_msg,
+                    return_code=-1,
+                    duration=duration
+                )
+            
+            # Wait for threads to complete
+            stdout_thread.join(timeout=5)
+            stderr_thread.join(timeout=5)
+            
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+            
+            # Combine output
+            output = "\n".join(stdout_lines)
+            error = "\n".join(stderr_lines)
+            
+            success = return_code == 0
+            
+            if success:
+                logger.info(f"Process completed successfully in {duration:.2f}s")
+            else:
+                logger.error(f"Process failed with return code {return_code}")
+            
+            return ProcessingResult(
+                success=success,
+                command=command_str,
+                output=output,
+                error=error,
+                return_code=return_code,
+                duration=duration
+            )
             
         except Exception as e:
-            error_msg = f"Failed to execute validation_generator: {e}"
+            error_msg = f"Failed to execute process: {e}"
             logger.error(error_msg)
             return ProcessingResult(
                 success=False,
@@ -368,23 +463,18 @@ class DataProcessor:
             start_time = datetime.now()
             logger.info(f"Starting metacam_cli processing at {start_time.strftime('%H:%M:%S')}")
             
-            # Execute with extended timeout for heavy processing
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=Config.METACAM_CLI_TIMEOUT_SECONDS,
-                cwd=self.metacam_cli_path.parent,
-                shell=False
+            # Execute with real-time output and extended timeout for heavy processing
+            result = self._run_process_with_realtime_output(
+                command=command,
+                command_str=command_str,
+                timeout_seconds=Config.METACAM_CLI_TIMEOUT_SECONDS,
+                cwd=str(self.metacam_cli_path.parent)
             )
             
-            end_time = datetime.now()
-            duration = (end_time - start_time).total_seconds()
-            
             # Log processing time information
-            hours = int(duration // 3600)
-            minutes = int((duration % 3600) // 60)
-            seconds = duration % 60
+            hours = int(result.duration // 3600)
+            minutes = int((result.duration % 3600) // 60)
+            seconds = result.duration % 60
             
             if hours > 0:
                 duration_str = f"{hours}h {minutes}m {seconds:.1f}s"
@@ -405,40 +495,28 @@ class DataProcessor:
                 if len(output_files) > 5:
                     logger.info(f"  ... and {len(output_files) - 5} more files")
             
-            # Log any important output or errors
-            if result.stderr and result.stderr.strip():
-                logger.warning(f"metacam_cli warnings/errors: {result.stderr.strip()}")
-            
             # Determine success based on return code and output presence
-            success = result.returncode == 0 and len(output_files) > 0
+            success = result.success and len(output_files) > 0
             
             if success:
                 logger.info(f"metacam_cli completed successfully")
             else:
-                logger.error(f"metacam_cli failed with return code {result.returncode}")
+                logger.error(f"metacam_cli failed with return code {result.return_code}")
                 if not output_files:
                     logger.error("No output files generated")
             
-            return ProcessingResult(
+            # Update the result with file generation status
+            final_result = ProcessingResult(
                 success=success,
-                command=command_str,
-                output=result.stdout or "",
-                error=result.stderr or ("No output files generated" if not success and not result.stderr else ""),
-                return_code=result.returncode,
-                duration=duration
+                command=result.command,
+                output=result.output,
+                error=result.error if result.error else ("No output files generated" if not success else ""),
+                return_code=result.return_code,
+                duration=result.duration
             )
             
-        except subprocess.TimeoutExpired:
-            # Handle timeout - this is expected for very large datasets
-            timeout_hours = Config.METACAM_CLI_TIMEOUT_SECONDS / 3600
-            error_msg = f"metacam_cli timed out after {timeout_hours:.1f} hours"
-            logger.error(error_msg)
-            logger.warning("Consider increasing METACAM_CLI_TIMEOUT_SECONDS for large datasets")
-            return ProcessingResult(
-                success=False,
-                command=command_str,
-                error=error_msg
-            )
+            return final_result
+            
             
         except Exception as e:
             error_msg = f"Failed to execute metacam_cli: {e}"
@@ -715,23 +793,18 @@ class DataProcessor:
             start_time = datetime.now()
             logger.info(f"Starting metacam_cli processing at {start_time.strftime('%H:%M:%S')}")
             
-            # Execute with extended timeout for heavy processing
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=Config.METACAM_CLI_TIMEOUT_SECONDS,
-                cwd=self.metacam_cli_path.parent,
-                shell=False
+            # Execute with real-time output and extended timeout for heavy processing
+            result = self._run_process_with_realtime_output(
+                command=command,
+                command_str=command_str,
+                timeout_seconds=Config.METACAM_CLI_TIMEOUT_SECONDS,
+                cwd=str(self.metacam_cli_path.parent)
             )
             
-            end_time = datetime.now()
-            duration = (end_time - start_time).total_seconds()
-            
             # Log processing time information
-            hours = int(duration // 3600)
-            minutes = int((duration % 3600) // 60)
-            seconds = duration % 60
+            hours = int(result.duration // 3600)
+            minutes = int((result.duration % 3600) // 60)
+            seconds = result.duration % 60
             
             if hours > 0:
                 duration_str = f"{hours}h {minutes}m {seconds:.1f}s"
@@ -752,40 +825,28 @@ class DataProcessor:
                 if len(output_files) > 5:
                     logger.info(f"  ... and {len(output_files) - 5} more files")
             
-            # Log any important output or errors
-            if result.stderr and result.stderr.strip():
-                logger.warning(f"metacam_cli warnings/errors: {result.stderr.strip()}")
-            
             # Determine success based on return code and output presence
-            success = result.returncode == 0 and len(output_files) > 0
+            success = result.success and len(output_files) > 0
             
             if success:
                 logger.info(f"metacam_cli completed successfully")
             else:
-                logger.error(f"metacam_cli failed with return code {result.returncode}")
+                logger.error(f"metacam_cli failed with return code {result.return_code}")
                 if not output_files:
                     logger.error("No output files generated")
             
-            return ProcessingResult(
+            # Update the result with file generation status
+            final_result = ProcessingResult(
                 success=success,
-                command=command_str,
-                output=result.stdout or "",
-                error=result.stderr or ("No output files generated" if not success and not result.stderr else ""),
-                return_code=result.returncode,
-                duration=duration
+                command=result.command,
+                output=result.output,
+                error=result.error if result.error else ("No output files generated" if not success else ""),
+                return_code=result.return_code,
+                duration=result.duration
             )
             
-        except subprocess.TimeoutExpired:
-            # Handle timeout - this is expected for very large datasets
-            timeout_hours = Config.METACAM_CLI_TIMEOUT_SECONDS / 3600
-            error_msg = f"metacam_cli timed out after {timeout_hours:.1f} hours"
-            logger.error(error_msg)
-            logger.warning("Consider increasing METACAM_CLI_TIMEOUT_SECONDS for large datasets")
-            return ProcessingResult(
-                success=False,
-                command=command_str,
-                error=error_msg
-            )
+            return final_result
+            
             
         except Exception as e:
             error_msg = f"Failed to execute metacam_cli: {e}"
