@@ -669,7 +669,7 @@ class ArchiveHandler:
         """清理临时目录"""
         try:
             if self.temp_extract_dir and os.path.exists(self.temp_extract_dir):
-                # shutil.rmtree(self.temp_extract_dir, ignore_errors=True)
+                shutil.rmtree(self.temp_extract_dir, ignore_errors=True)
                 logger.info(f"Cleaned up temporary directory: {self.temp_extract_dir}")
                 self.temp_extract_dir = None
                 
