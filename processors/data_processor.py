@@ -12,6 +12,7 @@ import shutil
 import threading
 import select
 import sys
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
@@ -255,7 +256,7 @@ class DataProcessor:
     def _run_process_with_realtime_output(self, command: List[str], command_str: str, 
                                         timeout_seconds: int, cwd: Optional[str] = None) -> ProcessingResult:
         """
-        Execute a subprocess with real-time output display
+        Execute a subprocess with real-time output display and enhanced error handling
         
         Args:
             command: List of command arguments
@@ -267,6 +268,46 @@ class DataProcessor:
             ProcessingResult with execution details
         """
         logger.info(f"Executing command: {command_str}")
+        
+        # Pre-execution checks
+        exe_path = command[0]
+        if not os.path.exists(exe_path):
+            error_msg = f"Executable not found: {exe_path}"
+            logger.error(error_msg)
+            return ProcessingResult(
+                success=False,
+                command=command_str,
+                error=error_msg
+            )
+        
+        # Check if executable has proper permissions
+        if not os.access(exe_path, os.X_OK):
+            logger.warning(f"Executable may not have execute permissions: {exe_path}")
+        
+        # Check working directory
+        if cwd and not os.path.exists(cwd):
+            error_msg = f"Working directory does not exist: {cwd}"
+            logger.error(error_msg)
+            return ProcessingResult(
+                success=False,
+                command=command_str,
+                error=error_msg
+            )
+        
+        # Log environment information
+        logger.info(f"Working directory: {cwd or os.getcwd()}")
+        logger.info(f"Executable path: {exe_path}")
+        logger.info(f"Executable size: {os.path.getsize(exe_path)} bytes")
+        logger.info(f"Timeout: {timeout_seconds} seconds")
+        
+        # Check executable dependencies and potential issues
+        dep_check = self._check_exe_dependencies(exe_path)
+        if dep_check['dependencies_found']:
+            logger.info(f"Found dependencies: {', '.join(dep_check['dependencies_found'])}")
+        
+        if dep_check['potential_issues']:
+            for issue in dep_check['potential_issues']:
+                logger.warning(f"Potential issue: {issue}")
         
         try:
             start_time = datetime.now()
@@ -288,22 +329,42 @@ class DataProcessor:
             
             def read_stdout():
                 try:
+                    line_count = 0
                     for line in iter(process.stdout.readline, ''):
                         if line:
                             line = line.rstrip('\n\r')
                             stdout_lines.append(line)
                             logger.info(f"[STDOUT] {line}")
+                            line_count += 1
+                            
+                            # Log progress every 50 lines to detect if process is active
+                            if line_count % 50 == 0:
+                                logger.debug(f"Process is active - received {line_count} stdout lines")
+                    
+                    if line_count == 0:
+                        logger.warning("No stdout output received from process")
+                    else:
+                        logger.debug(f"Stdout reading completed - total {line_count} lines")
                     process.stdout.close()
                 except Exception as e:
                     logger.error(f"Error reading stdout: {e}")
             
             def read_stderr():
                 try:
+                    error_count = 0
                     for line in iter(process.stderr.readline, ''):
                         if line:
                             line = line.rstrip('\n\r')
                             stderr_lines.append(line)
                             logger.warning(f"[STDERR] {line}")
+                            error_count += 1
+                            
+                            # Check for specific error patterns that indicate permission issues
+                            if any(keyword in line.lower() for keyword in ['access denied', 'permission denied', 'cannot access', 'unauthorized']):
+                                logger.error(f"PERMISSION ERROR DETECTED: {line}")
+                    
+                    if error_count > 0:
+                        logger.warning(f"Stderr reading completed - total {error_count} error lines")
                     process.stderr.close()
                 except Exception as e:
                     logger.error(f"Error reading stderr: {e}")
@@ -318,25 +379,54 @@ class DataProcessor:
             stdout_thread.start()
             stderr_thread.start()
             
-            # Wait for process completion or timeout
+            # Wait for process completion or timeout with enhanced monitoring
             try:
-                return_code = process.wait(timeout=timeout_seconds)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-                end_time = datetime.now()
-                duration = (end_time - start_time).total_seconds()
+                logger.info(f"Waiting for process completion (max {timeout_seconds}s)...")
                 
-                error_msg = f"Process timed out after {timeout_seconds} seconds"
-                logger.error(error_msg)
-                return ProcessingResult(
-                    success=False,
-                    command=command_str,
-                    output="\n".join(stdout_lines),
-                    error=error_msg,
-                    return_code=-1,
-                    duration=duration
-                )
+                # Use poll() with short intervals to detect early exits
+                poll_interval = 5  # Check every 5 seconds
+                elapsed = 0
+                
+                while elapsed < timeout_seconds:
+                    return_code = process.poll()
+                    if return_code is not None:
+                        # Process has completed
+                        logger.info(f"Process completed after {elapsed:.1f}s with return code {return_code}")
+                        break
+                    
+                    # Log progress every 30 seconds to show the process is still running
+                    if elapsed > 0 and elapsed % 30 == 0:
+                        logger.info(f"Process still running... ({elapsed}s elapsed)")
+                    
+                    time.sleep(poll_interval)
+                    elapsed += poll_interval
+                else:
+                    # Timeout occurred
+                    logger.warning(f"Process did not complete within {timeout_seconds} seconds")
+                    process.kill()
+                    return_code = process.wait()  # Wait for kill to complete
+                    
+                    end_time = datetime.now()
+                    duration = (end_time - start_time).total_seconds()
+                    
+                    error_msg = f"Process timed out after {timeout_seconds} seconds"
+                    logger.error(error_msg)
+                    return ProcessingResult(
+                        success=False,
+                        command=command_str,
+                        output="\n".join(stdout_lines),
+                        error=error_msg,
+                        return_code=return_code,
+                        duration=duration
+                    )
+                
+            except Exception as e:
+                logger.error(f"Error waiting for process: {e}")
+                try:
+                    process.kill()
+                    return_code = process.wait()
+                except:
+                    return_code = -1
             
             # Wait for threads to complete
             stdout_thread.join(timeout=5)
@@ -351,10 +441,46 @@ class DataProcessor:
             
             success = return_code == 0
             
+            # Enhanced result analysis
             if success:
                 logger.info(f"Process completed successfully in {duration:.2f}s")
+                logger.info(f"Generated {len(stdout_lines)} stdout lines, {len(stderr_lines)} stderr lines")
             else:
                 logger.error(f"Process failed with return code {return_code}")
+                
+                # Analyze failure reasons
+                if return_code == -1:
+                    logger.error("Process was killed or crashed unexpectedly")
+                elif return_code == 1:
+                    logger.error("General error occurred in process")
+                elif return_code == 2:
+                    logger.error("Misuse of shell command or invalid arguments")
+                elif return_code == 126:
+                    logger.error("Command invoked cannot execute (permission problem or not executable)")
+                elif return_code == 127:
+                    logger.error("Command not found")
+                elif return_code == 128:
+                    logger.error("Invalid argument to exit")
+                elif return_code > 128:
+                    signal_num = return_code - 128
+                    logger.error(f"Process terminated by signal {signal_num}")
+                else:
+                    logger.error(f"Process exited with unknown code {return_code}")
+                
+                # Check for silent exit (no output at all)
+                if len(stdout_lines) == 0 and len(stderr_lines) == 0:
+                    logger.error("SILENT EXIT DETECTED: Process exited without any output")
+                    logger.error("This usually indicates:")
+                    logger.error("  1. Permission issues (insufficient privileges)")
+                    logger.error("  2. Missing dependencies or libraries")
+                    logger.error("  3. Invalid input parameters")
+                    logger.error("  4. Working directory access issues")
+                    logger.error("  5. Antivirus blocking execution")
+                
+                # Check if minimal output suggests early exit
+                elif len(stdout_lines) < 3 and duration < 5:
+                    logger.warning("EARLY EXIT DETECTED: Process ran for very short time with minimal output")
+                    logger.warning("This may indicate startup issues or invalid parameters")
             
             return ProcessingResult(
                 success=success,
@@ -373,6 +499,59 @@ class DataProcessor:
                 command=command_str,
                 error=error_msg
             )
+    
+    def _check_exe_dependencies(self, exe_path: str) -> Dict[str, Any]:
+        """
+        Check executable dependencies and environment requirements
+        
+        Args:
+            exe_path: Path to the executable file
+            
+        Returns:
+            Dict with dependency check results
+        """
+        check_result = {
+            'file_exists': False,
+            'file_size': 0,
+            'executable': False,
+            'dependencies_found': [],
+            'potential_issues': []
+        }
+        
+        try:
+            if os.path.exists(exe_path):
+                check_result['file_exists'] = True
+                check_result['file_size'] = os.path.getsize(exe_path)
+                check_result['executable'] = os.access(exe_path, os.X_OK)
+                
+                # Check for common dependency files in the same directory
+                exe_dir = os.path.dirname(exe_path)
+                common_deps = [
+                    'msvcr120.dll', 'msvcr140.dll', 'msvcp140.dll',  # Visual C++ Runtime
+                    'vcruntime140.dll', 'vcruntime140_1.dll',        # More VC++ Runtime
+                    'api-ms-win-crt-runtime-l1-1-0.dll',            # Universal CRT
+                    'concrt140.dll', 'vcomp140.dll',                # Concurrency Runtime
+                ]
+                
+                for dep in common_deps:
+                    dep_path = os.path.join(exe_dir, dep)
+                    if os.path.exists(dep_path):
+                        check_result['dependencies_found'].append(dep)
+                
+                # Check for potential issues
+                if check_result['file_size'] == 0:
+                    check_result['potential_issues'].append("Executable file is empty")
+                
+                if not check_result['executable']:
+                    check_result['potential_issues'].append("File does not have execute permissions")
+                
+                if len(check_result['dependencies_found']) == 0:
+                    check_result['potential_issues'].append("No common dependencies found - may require system libraries")
+                    
+        except Exception as e:
+            check_result['potential_issues'].append(f"Error checking dependencies: {e}")
+        
+        return check_result
     
     def _cleanup_temp_directories(self):
         """Clean up any temporary directories created during processing"""
