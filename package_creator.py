@@ -24,7 +24,8 @@ def create_final_package(
     output_files: Dict[str, str], 
     package_name: str, 
     file_id: str = None,
-    output_dir: str = "./processed"
+    output_dir: str = "./processed",
+    scene_type: str = "outdoor"
 ) -> Dict[str, any]:
     """
     Create the final processed package by combining original files with processing outputs
@@ -35,6 +36,7 @@ def create_final_package(
         package_name: Name for the final package
         file_id: Google Drive file ID for package naming (optional)
         output_dir: Directory to save the final package (default: ./processed)
+        scene_type: Scene type (indoor/outdoor) for subdirectory organization
         
     Returns:
         Dict containing success status, package path, and any errors
@@ -100,16 +102,21 @@ def create_final_package(
         else:
             logger.warning(f"camera/ directory not found in: {original_path} (searched recursively)")
         
-        # Create final zip package with file_id-based naming if available
+        # Create scene-specific subdirectory and file naming
+        scene_subdir = "outdoor" if scene_type.lower() == "outdoor" else "indoor"
+        output_with_scene = Path(output_dir) / scene_subdir
+        
+        # Use file_id for naming without _processed suffix
         if file_id:
-            final_package_name = f"{file_id}_processed.zip"
+            final_package_name = f"{file_id}.zip"
             logger.info(f"Using Google Drive file ID for package name: {file_id}")
         else:
-            final_package_name = f"{package_name}_processed.zip"
+            final_package_name = f"{package_name}.zip"
             logger.info(f"Using package name for final package: {package_name}")
         
-        # Use the specified output directory instead of PROCESSING_OUTPUT_PATH
-        final_package_path = Path(output_dir) / final_package_name
+        final_package_path = output_with_scene / final_package_name
+        logger.info(f"Final package will be saved to: {final_package_path}")
+        logger.info(f"Scene type: {scene_type} -> subdirectory: {scene_subdir}")
         
         # Ensure output directory exists
         final_package_path.parent.mkdir(parents=True, exist_ok=True)

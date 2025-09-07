@@ -125,16 +125,18 @@ processors/exe_packages/output/{package_name}_output/
 ```
 
 ### Final Processed Package
-The system creates final processed packages at:
+The system creates final processed packages organized by scene type:
 ```
-processed/{file_id}_processed.zip    # Using Google Drive file ID for unique naming
-# OR
-processed/{package_name}_processed.zip    # Fallback if file_id not available
+processed/outdoor/{file_id}.zip    # Outdoor scenes
+processed/indoor/{file_id}.zip     # Indoor scenes
+# OR (fallback if file_id not available)
+processed/outdoor/{package_name}.zip
+processed/indoor/{package_name}.zip
 ```
 
 **Package Contents:**
 ```
-{file_id}_processed.zip
+{file_id}.zip
 ├── [original_pointcloud_name]  # 3D point cloud (保持exe输出的原始文件名)
 ├── transforms.json            # Camera transformation matrices
 ├── metadata.yaml              # Original metadata (preserved)

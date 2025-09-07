@@ -503,13 +503,26 @@ class GoogleDriveMonitorSystem:
                                     if output_files.get('colorized_las') and output_files.get('transforms_json'):
                                         logger.info("Creating final processed package...")
                                         
+                                        # Extract scene type from validation result
+                                        scene_type = "outdoor"  # default
+                                        if validation_for_processing and 'metadata' in validation_for_processing:
+                                            extracted_metadata = validation_for_processing['metadata'].get('extracted_metadata', {})
+                                            if 'scene_validation' in extracted_metadata:
+                                                scene_validation = extracted_metadata['scene_validation']
+                                                detected_scene = scene_validation.get('scene_type', '').lower()
+                                                if detected_scene in ['indoor', 'outdoor']:
+                                                    scene_type = detected_scene
+                                        
+                                        logger.info(f"Detected scene type: {scene_type}")
+                                        
                                         # Use the original_extracted_path (未处理的解压路径) for finding original files
                                         package_result = create_final_package(
                                             original_path=original_extracted_path,
                                             output_files=output_files,
                                             package_name=Path(original_extracted_path).name,
                                             file_id=file_id,
-                                            output_dir="./processed"
+                                            output_dir="./processed",
+                                            scene_type=scene_type
                                         )
                                         
                                         if package_result['success']:
