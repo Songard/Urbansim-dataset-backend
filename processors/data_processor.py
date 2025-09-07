@@ -1149,8 +1149,9 @@ class DataProcessor:
                     error=error_msg
                 )
             
-            logger.info(f"Found colorized.las at: {output_files['colorized_las']}")
-            logger.info(f"Found transforms.json at: {output_files['transforms_json']}")
+            logger.info(f"✅ POST-PROCESSING: Required output files successfully located!")
+            logger.info(f"  • colorized.las: {output_files['colorized_las']}")
+            logger.info(f"  • transforms.json: {output_files['transforms_json']}")
             
             # Create final processed package
             final_package_result = self._create_final_package(
@@ -1201,39 +1202,114 @@ class DataProcessor:
             self.metacam_cli_path.parent / "processed" / "output"
         ]
         
-        logger.info(f"Searching for output files in {len(search_locations)} locations:")
-        for location in search_locations:
-            logger.info(f"  - {location}")
+        logger.info(f"=== Starting search for output files (colorized.las & transforms.json) ===")
+        logger.info(f"Package name: {package_name}")
+        logger.info(f"Will search in {len(search_locations)} locations:")
+        for i, location in enumerate(search_locations, 1):
+            logger.info(f"  {i}. {location}")
         
         # Search for files in each location
-        for search_path in search_locations:
+        for i, search_path in enumerate(search_locations, 1):
+            logger.info(f"[{i}/{len(search_locations)}] Checking location: {search_path}")
+            
             if not search_path.exists():
+                logger.info(f"  → Directory does not exist, skipping")
                 continue
                 
-            logger.debug(f"Searching in: {search_path}")
+            logger.info(f"  → Directory exists, searching for files...")
+            
+            # List directory contents for debugging
+            try:
+                contents = list(search_path.iterdir())
+                if contents:
+                    logger.info(f"  → Found {len(contents)} items in directory:")
+                    for item in contents[:10]:  # Show first 10 items
+                        item_type = "DIR" if item.is_dir() else "FILE"
+                        logger.info(f"    - [{item_type}] {item.name}")
+                    if len(contents) > 10:
+                        logger.info(f"    ... and {len(contents) - 10} more items")
+                else:
+                    logger.info(f"  → Directory is empty")
+            except Exception as e:
+                logger.warning(f"  → Could not list directory contents: {e}")
             
             # Search for colorized.las
             if not result['colorized_las']:
+                logger.info(f"  → Searching for colorized.las...")
                 for pattern in ['colorized.las', '**/colorized.las']:
+                    logger.info(f"    - Trying pattern: {pattern}")
                     matches = list(search_path.glob(pattern))
                     if matches:
                         result['colorized_las'] = str(matches[0])
-                        logger.debug(f"Found colorized.las: {result['colorized_las']}")
+                        logger.info(f"    ✓ FOUND colorized.las at: {result['colorized_las']}")
                         break
+                    else:
+                        logger.info(f"    ✗ No match for pattern: {pattern}")
+                
+                if not result['colorized_las']:
+                    logger.info(f"  → colorized.las not found in this location")
+            else:
+                logger.info(f"  → colorized.las already found, skipping search")
             
             # Search for transforms.json
             if not result['transforms_json']:
+                logger.info(f"  → Searching for transforms.json...")
                 for pattern in ['transforms.json', '**/transforms.json']:
+                    logger.info(f"    - Trying pattern: {pattern}")
                     matches = list(search_path.glob(pattern))
                     if matches:
                         result['transforms_json'] = str(matches[0])
-                        logger.debug(f"Found transforms.json: {result['transforms_json']}")
+                        logger.info(f"    ✓ FOUND transforms.json at: {result['transforms_json']}")
                         break
+                    else:
+                        logger.info(f"    ✗ No match for pattern: {pattern}")
+                
+                if not result['transforms_json']:
+                    logger.info(f"  → transforms.json not found in this location")
+            else:
+                logger.info(f"  → transforms.json already found, skipping search")
             
             # If both files found, stop searching
             if result['colorized_las'] and result['transforms_json']:
-                logger.info(f"Both required files found in: {search_path}")
+                logger.info(f"🎉 SUCCESS: Both required files found in location {i}: {search_path}")
                 break
+            else:
+                files_found = []
+                if result['colorized_las']:
+                    files_found.append("colorized.las")
+                if result['transforms_json']:
+                    files_found.append("transforms.json")
+                
+                if files_found:
+                    logger.info(f"  → Partial success: Found {', '.join(files_found)} but still searching for remaining files")
+                else:
+                    logger.info(f"  → No target files found in this location")
+        
+        # Final search results summary
+        logger.info(f"=== Search completed ===")
+        if result['colorized_las'] and result['transforms_json']:
+            logger.info(f"✅ SEARCH SUCCESS: Both required files found!")
+            logger.info(f"  • colorized.las: {result['colorized_las']}")
+            logger.info(f"  • transforms.json: {result['transforms_json']}")
+        else:
+            missing_files = []
+            if not result['colorized_las']:
+                missing_files.append("colorized.las")
+            if not result['transforms_json']:
+                missing_files.append("transforms.json")
+            
+            logger.error(f"❌ SEARCH FAILED: Missing files: {', '.join(missing_files)}")
+            
+            if result['colorized_las']:
+                logger.info(f"  • Found colorized.las: {result['colorized_las']}")
+            if result['transforms_json']:
+                logger.info(f"  • Found transforms.json: {result['transforms_json']}")
+            
+            logger.info(f"💡 Troubleshooting suggestions:")
+            logger.info(f"  1. Check if metacam_cli.exe completed successfully")
+            logger.info(f"  2. Verify the exe actually generates these specific filenames") 
+            logger.info(f"  3. Check if files are in subdirectories with different names")
+            logger.info(f"  4. Look for alternative file extensions (.pcd, .ply, .txt, etc.)")
         
         return result
     

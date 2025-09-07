@@ -134,11 +134,50 @@ processed/output/{package_name}_processed.zip
 
 ### Processing Logs
 Detailed processing logs include:
-- Real-time executable output
-- Processing duration and performance metrics
-- File search results and locations
-- Package assembly status
+- Real-time executable output with progress tracking
+- Processing duration and performance metrics  
+- **Comprehensive file search logging**:
+  - All search locations with existence checks
+  - Directory contents listing for debugging
+  - Pattern matching attempts with results
+  - Detailed success/failure reporting
+- Package assembly status with step-by-step progress
 - Error diagnostics and troubleshooting information
+
+**Example Search Log Output:**
+```
+=== Starting search for output files (colorized.las & transforms.json) ===
+Package name: 8428bay16st
+Will search in 5 locations:
+  1. ./processed/output/8428bay16st_output
+  2. ./processors/exe_packages/processed/output/o_8428bay16st_output
+  3. ./processors/exe_packages/output/8428bay16st_output
+  4. ./processors/exe_packages/output
+  5. ./processors/exe_packages/processed/output
+
+[1/5] Checking location: ./processed/output/8428bay16st_output
+  → Directory does not exist, skipping
+
+[2/5] Checking location: ./processors/exe_packages/processed/output/o_8428bay16st_output
+  → Directory exists, searching for files...
+  → Found 3 items in directory:
+    - [FILE] colorized.las
+    - [FILE] transforms.json  
+    - [FILE] processing_log.txt
+  → Searching for colorized.las...
+    - Trying pattern: colorized.las
+    ✓ FOUND colorized.las at: ./processors/exe_packages/processed/output/o_8428bay16st_output/colorized.las
+  → Searching for transforms.json...
+    - Trying pattern: transforms.json
+    ✓ FOUND transforms.json at: ./processors/exe_packages/processed/output/o_8428bay16st_output/transforms.json
+
+🎉 SUCCESS: Both required files found in location 2: ./processors/exe_packages/processed/output/o_8428bay16st_output
+
+=== Search completed ===
+✅ SEARCH SUCCESS: Both required files found!
+  • colorized.las: ./processors/exe_packages/processed/output/o_8428bay16st_output/colorized.las
+  • transforms.json: ./processors/exe_packages/processed/output/o_8428bay16st_output/transforms.json
+```
 
 ## Installation
 
@@ -172,6 +211,7 @@ The system is designed to handle various failure scenarios:
    - Check configured `PROCESSING_OUTPUT_PATH`
    - Verify executable permissions and dependencies
    - Review processing logs for silent exits
+   - **Check detailed search logs**: Look for the search section in logs to see exactly where the system looked and what it found
 
 2. **Processing Timeouts**
    - Increase `METACAM_CLI_TIMEOUT_SECONDS` for large datasets
@@ -194,7 +234,37 @@ print(status)
 # Validate executable accessibility
 exe_status = processor.validate_executables()
 print(exe_status)
+
+# Test file search for a specific package
+package_name = "your_package_name"  # Replace with actual package name
+output_files = processor._find_processing_output_files(package_name)
+print(f"Search results: {output_files}")
 ```
+
+### Real-time Log Monitoring
+
+To watch the file search process in real-time:
+
+```bash
+# Monitor all processing logs
+tail -f logs/monitor.log
+
+# Filter for file search activities only  
+tail -f logs/monitor.log | grep -E "(Starting search|Checking location|FOUND|SUCCESS|FAILED)"
+
+# Monitor specific package processing
+tail -f logs/monitor.log | grep "package_name_here"
+
+# Watch for processing completion
+tail -f logs/monitor.log | grep -E "(Post-processing|final package|SUCCESS|ERROR)"
+```
+
+**Key log patterns to look for:**
+- `=== Starting search for output files ===` - File search begins
+- `[X/Y] Checking location:` - Current search location
+- `✓ FOUND colorized.las at:` - File found successfully  
+- `🎉 SUCCESS: Both required files found` - Search completed successfully
+- `❌ SEARCH FAILED: Missing files:` - Files not found
 
 ## Configuration Reference
 
