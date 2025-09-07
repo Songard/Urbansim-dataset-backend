@@ -11,6 +11,7 @@ This system provides end-to-end processing of MetaCam data packages from Google 
 - **AI-Powered Quality Assessment**: YOLO11-based transient object detection
 - **Automated 3D Reconstruction Processing**: Integrated Windows executable pipeline
 - **Intelligent Scene Detection**: Automatic scene type determination for optimal processing
+- **Post-Processing Package Creation**: Automatic assembly of final processed packages
 - **Real-time Results Tracking**: Automated Google Sheets integration with detailed metrics
 - **Email Notifications**: Optional alerts for processing status and system health
 - **Robust Error Handling**: Detailed error reporting and graceful failure recovery
@@ -34,7 +35,8 @@ MetaCam Data Processing System
 │   ├── Data Processor Orchestrator
 │   ├── validation_generator.exe
 │   ├── metacam_cli.exe
-│   └── Scene Type Detection
+│   ├── Scene Type Detection
+│   └── Post-Processing Package Creator
 ├── 📁 Data Output
 │   ├── Google Sheets Writer
 │   ├── Error Formatter
@@ -48,7 +50,7 @@ MetaCam Data Processing System
 ### Data Flow
 
 ```
-Google Drive Upload → Download → Extract → Validate → Process → Report
+Google Drive Upload → Download → Extract → Validate → Process → Package → Report
                                      ↓
                             [MetaCam Validator]
                                      ↓
@@ -68,6 +70,12 @@ Google Drive Upload → Download → Extract → Validate → Process → Report
                                      ↓
                          [3D Reconstruction Output]
                                      ↓
+                          [Post-Processing Search]
+                                     ↓
+                        [Final Package Assembly]
+                                     ↓
+                           [Package Compression]
+                                     ↓
                             [Google Sheets Update]
 ```
 
@@ -81,6 +89,9 @@ Google Drive Upload → Download → Extract → Validate → Process → Report
 - **Automated 3D Reconstruction**: Coordinated execution of validation_generator.exe and metacam_cli.exe
 - **Intelligent Scene Detection**: Automatic outdoor/indoor/narrow scene classification for optimal processing
 - **Unified Path Management**: Both processing tools receive the same data package root directory
+- **Post-Processing Package Assembly**: Automatic creation of final packages combining processing results with original metadata
+- **Robust Output File Search**: Multi-location search for processing outputs ensuring reliability
+- **Package Verification**: Automatic validation of final package contents and structure
 
 ### 🔍 Advanced Validation
 - **Schema Validation**: MetaCam data package structure verification
@@ -182,6 +193,20 @@ LOG_FILE=logs/monitor.log            # Log file path
 LOG_MAX_SIZE=10485760               # Max log file size (10MB)
 LOG_BACKUP_COUNT=5                   # Number of backup log files
 
+# Data Processing Pipeline
+PROCESSORS_EXE_PATH=./processors/exe_packages  # Path to processing executables
+PROCESSING_TIMEOUT_SECONDS=600       # General processing timeout (10 minutes)
+METACAM_CLI_TIMEOUT_SECONDS=3600     # MetaCam CLI specific timeout (1 hour)
+PROCESSING_OUTPUT_PATH=./processed/output     # Processing results output directory
+AUTO_START_PROCESSING=True           # Automatically start processing after validation
+PROCESSING_RETRY_ATTEMPTS=2          # Number of retry attempts on failure
+KEEP_ORIGINAL_DATA=True              # Preserve original data after processing
+
+# MetaCam CLI Configuration
+METACAM_CLI_MODE=0                   # Processing mode: 0=fast, 1=precision
+METACAM_CLI_COLOR=1                  # Color processing: 0=No, 1=Yes
+INDOOR_SCALE_THRESHOLD_M=30          # Scale threshold for narrow scene detection
+
 # Google Sheets
 SHEET_NAME=Sheet1                    # Target sheet name
 BATCH_WRITE_SIZE=10                  # Batch size for sheet updates
@@ -249,6 +274,45 @@ python -m validation.manager /path/to/extracted/data
 # Check system connectivity
 python main.py --test-connection
 ```
+
+## Processing Results
+
+### Final Processed Packages
+
+After successful 3D reconstruction processing, the system automatically creates final processed packages containing:
+
+**Package Structure (`{original_name}_processed.zip`):**
+```
+{package_name}_processed.zip
+├── colorized.las          # Processed 3D point cloud with color data
+├── transforms.json        # 3D transformation matrices and camera poses  
+├── metadata.yaml          # Original recording metadata (preserved)
+├── Preview.jpg            # Original preview image (preserved)
+└── camera/                # Complete camera calibration data (preserved)
+    ├── left/              # Left camera data and calibration
+    └── right/             # Right camera data and calibration
+```
+
+**Key Output Files:**
+- **`colorized.las`**: Final 3D reconstruction result with color information from camera data
+- **`transforms.json`**: Camera transformation matrices, coordinate system information, and 3D alignment data
+- **Preserved Files**: Essential metadata and calibration data from the original package for reference
+
+**Output Location**: Final packages are saved to the configured `PROCESSING_OUTPUT_PATH` directory (default: `./processed/output/`)
+
+**Package Search Logic**: The system searches multiple locations for processing outputs to ensure reliability:
+- Configured output directory
+- Executable-relative output paths  
+- Alternative naming patterns (e.g., `o_{package_name}_output`)
+
+### Processing Status Tracking
+
+The system tracks processing through multiple stages:
+1. **Pre-Processing**: Directory standardization and validation
+2. **Generator Phase**: `validation_generator.exe` execution
+3. **Reconstruction Phase**: `metacam_cli.exe` execution with scene-appropriate settings
+4. **Post-Processing**: Output file search and final package assembly
+5. **Verification**: Package content validation and integrity checks
 
 ## Data Validation
 
@@ -371,7 +435,8 @@ Urbansim/
 ├── 
 ├── processors/                      # File processing components  
 │   ├── file_downloader.py          # Download management
-│   └── archive_handler.py          # Archive extraction and validation
+│   ├── archive_handler.py          # Archive extraction and validation
+│   └── data_processor.py           # 3D reconstruction processing pipeline
 ├── 
 ├── validation/                      # Data validation system
 │   ├── manager.py                  # Validation pipeline coordinator
@@ -398,7 +463,8 @@ Urbansim/
 │   └── validators.py               # Environment validation
 ├── 
 ├── data_schemas/                    # Data validation schemas
-│   └── metacam_schema.yaml         # MetaCam package format definition
+│   ├── metacam_schema.yaml         # MetaCam package format definition
+│   └── processed_metacam_schema.yaml  # Processed package format definition
 ├── 
 ├── logs/                           # System logs (created at runtime)
 ├── downloads/                      # Downloaded files (created at runtime)  
@@ -440,5 +506,5 @@ For technical support or questions:
 
 ---
 
-*Last Updated: 2025-09-04*  
-*Version: 3.1 - Enhanced processing pipeline with corrected path handling and improved documentation*
+*Last Updated: 2025-09-07*  
+*Version: 3.2 - Added comprehensive post-processing pipeline with final package assembly, multi-location output search, and enhanced documentation*

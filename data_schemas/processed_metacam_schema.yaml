@@ -1,0 +1,136 @@
+# 处理后MetaCam数据包格式规范
+# 用于验证数据处理流程输出的最终数据包结构
+
+schema_name: "Processed MetaCam Data Package"
+schema_version: "1.0"
+description: "经过三维重建处理后的MetaCam数据包标准格式"
+
+# 处理后数据包根结构
+root_structure:
+  description: "处理后的数据包应包含原始数据的关键部分和处理结果"
+
+# 必需的文件（从原始包保留）
+preserved_files:
+  - path: "metadata.yaml"
+    description: "原始元数据配置文件"
+    file_type: "text"
+    source: "original_package"
+    min_size: 100
+    max_size: 10240
+    extensions: [".yaml", ".yml"]
+    
+  - path: "Preview.jpg"
+    description: "原始预览图片"
+    file_type: "binary" 
+    source: "original_package"
+    min_size: 1024
+    max_size: 10485760
+    extensions: [".jpg", ".jpeg"]
+
+# 必需的目录（从原始包保留）
+preserved_directories:
+  - path: "camera"
+    description: "相机数据目录（完整保留）"
+    source: "original_package"
+    preserve_structure: true
+    subdirectories:
+      - path: "camera/left"
+        description: "左相机数据"
+        optional: false
+      - path: "camera/right"
+        description: "右相机数据" 
+        optional: false
+
+# 处理结果文件（从exe输出获取）
+processing_output_files:
+  - path: "colorized.las"
+    description: "处理后的彩色点云文件"
+    file_type: "binary"
+    source: "processing_output"
+    min_size: 1048576  # 1MB
+    max_size: 5368709120  # 5GB
+    extensions: [".las"]
+    required: true
+    
+  - path: "transforms.json"
+    description: "三维变换矩阵文件"
+    file_type: "json"
+    source: "processing_output"
+    min_size: 100
+    max_size: 1048576  # 1MB
+    extensions: [".json"]
+    required: true
+
+# 可选的处理输出文件
+optional_processing_files:
+  - path: "processing_log.txt"
+    description: "处理日志文件"
+    file_type: "text"
+    source: "processing_output"
+    max_size: 10485760  # 10MB
+    extensions: [".txt", ".log"]
+    required: false
+
+# 最终打包要求
+packaging_requirements:
+  compression_format: "zip"
+  package_naming: "{original_name}_processed"
+  max_package_size: 10737418240  # 10GB
+  preserve_timestamps: true
+
+# 验证要求
+validation_requirements:
+  # 必须存在的处理输出文件
+  required_processing_outputs:
+    - "colorized.las"
+    - "transforms.json"
+  
+  # 必须从原始包保留的文件
+  required_preserved_files:
+    - "metadata.yaml"
+    - "camera/"
+    - "Preview.jpg"
+
+# 文件内容验证规则
+content_validation:
+  json_files:
+    - path: "transforms.json"
+      required_keys: []  # 具体的keys由处理程序定义
+      description: "变换矩阵JSON格式验证"
+      
+  yaml_files:
+    - path: "metadata.yaml"
+      required_keys: []  # 保持原有结构
+      description: "元数据YAML格式验证"
+
+# 处理质量检查
+quality_checks:
+  colorized_las:
+    min_point_count: 1000  # 最少点数
+    coordinate_range_check: true
+    color_data_check: true
+    
+  transforms_json:
+    matrix_validation: true
+    coordinate_system_check: true
+
+# 错误和警告消息
+messages:
+  missing_processing_output: "缺少处理输出文件: {path}"
+  missing_preserved_file: "缺少保留的原始文件: {path}"
+  processing_failed: "数据处理失败，未生成必需的输出文件"
+  file_too_small: "文件 {path} 过小: {size} < {min_size}"
+  file_too_large: "文件 {path} 过大: {size} > {max_size}"
+  invalid_json: "JSON文件 {path} 格式错误: {error}"
+  packaging_success: "处理后数据包创建成功: {package_path}"
+  packaging_failed: "处理后数据包创建失败: {error}"
+
+# 处理流程状态
+processing_status:
+  not_started: "未开始处理"
+  in_progress: "处理中"
+  processing_completed: "exe处理完成"
+  packaging_started: "开始打包"
+  packaging_completed: "打包完成"
+  failed: "处理失败"
+  success: "处理成功"

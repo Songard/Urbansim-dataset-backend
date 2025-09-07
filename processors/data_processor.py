@@ -1,8 +1,34 @@
 """
 Data Processing Module
 
-Handles execution of Windows executable programs for data processing.
+Handles execution of Windows executable programs for MetaCam data processing.
 Integrates with the validation pipeline to process data after validation passes.
+
+This module orchestrates a complete data processing workflow:
+1. Directory structure standardization for MetaCam format compatibility
+2. Execution of validation_generator.exe for data preparation
+3. Execution of metacam_cli.exe for 3D reconstruction processing
+4. Post-processing to create final packaged results
+
+Key Features:
+- Robust file search across multiple possible output locations
+- Automatic creation of final processed packages combining original and processed files
+- Real-time process monitoring with detailed logging
+- Comprehensive error handling and recovery
+- Package verification and integrity checks
+
+Output Structure:
+The final processed package ({package_name}_processed.zip) contains:
+- colorized.las: Processed 3D point cloud with color information
+- transforms.json: 3D transformation matrices and metadata
+- metadata.yaml: Original package metadata (preserved)
+- Preview.jpg: Original preview image (preserved)
+- camera/: Complete camera calibration data (preserved)
+
+Dependencies:
+- validation_generator.exe: Data preparation tool
+- metacam_cli.exe: 3D reconstruction processing tool
+- Original MetaCam data package with proper directory structure
 """
 
 import os
@@ -13,6 +39,8 @@ import threading
 import select
 import sys
 import time
+import zipfile
+import yaml
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
@@ -51,10 +79,42 @@ class ProcessingResult:
 
 class DataProcessor:
     """
-    Data processing orchestrator for Windows executable programs.
+    MetaCam data processing orchestrator for Windows executable programs.
     
-    Manages execution of data processing tools in a controlled environment
-    with proper error handling, logging, and integration with the validation system.
+    Manages the complete workflow of MetaCam 3D reconstruction processing:
+    
+    Processing Pipeline:
+    1. Directory standardization - Ensures MetaCam-compatible structure
+    2. validation_generator.exe - Prepares and validates data format
+    3. metacam_cli.exe - Performs 3D reconstruction with configurable parameters
+    4. Post-processing - Creates final packaged results
+    
+    Key Features:
+    - Automatic scene type detection (Indoor/Outdoor/Balance)
+    - Multi-location output file search for robustness
+    - Real-time process monitoring with timeout handling
+    - Comprehensive logging and error reporting
+    - Final package assembly and verification
+    - Temporary resource cleanup
+    
+    Configuration:
+    Uses Config class settings for:
+    - Executable paths (PROCESSORS_EXE_PATH)
+    - Processing timeouts (PROCESSING_TIMEOUT_SECONDS, METACAM_CLI_TIMEOUT_SECONDS)
+    - Output directory (PROCESSING_OUTPUT_PATH)
+    - MetaCam CLI parameters (mode, color settings, scene thresholds)
+    
+    Error Handling:
+    - Graceful handling of exe failures or crashes
+    - Attempts post-processing even if exes exit abnormally
+    - Detailed error logging with diagnostic information
+    - Automatic cleanup of temporary resources
+    
+    Usage:
+        processor = DataProcessor()
+        result = processor.process_validated_data(data_path, validation_result)
+        if result['overall_success'] and 'final_package_path' in result:
+            print(f"Processing completed: {result['final_package_path']}")
     """
     
     def __init__(self):
@@ -175,7 +235,20 @@ class DataProcessor:
             
             logger.info("metacam_cli completed successfully")
             
-            # Future processing steps (e.g., result validation, cleanup) can be added here
+            # Step 3: Post-process the outputs and create final package
+            step3_result = self._post_process_results(standardized_path, validation_result)
+            processing_results['processing_steps'].append({
+                'step': 'post_processing',
+                'result': step3_result.to_dict() if step3_result else {'success': False, 'error': 'No post-processing result'}
+            })
+            
+            if step3_result and step3_result.success:
+                logger.info("Post-processing and packaging completed successfully")
+                processing_results['final_package_path'] = step3_result.output
+            else:
+                warning_msg = "Processing completed but post-processing failed"
+                processing_results['warnings'].append(warning_msg)
+                logger.warning(warning_msg)
             
             # Mark overall success
             processing_results['overall_success'] = True
@@ -1035,3 +1108,285 @@ class DataProcessor:
                 command=command_str,
                 error=error_msg
             )
+    
+    def _post_process_results(self, standardized_path: str, validation_result: Dict) -> Optional[ProcessingResult]:
+        """
+        Post-process the exe outputs to create final processed package
+        
+        This method:
+        1. Searches for the required output files (colorized.las, transforms.json)
+        2. Copies required files from the original package
+        3. Creates and compresses the final processed package
+        
+        Args:
+            standardized_path: Path to the original standardized data directory
+            validation_result: Validation result for context
+            
+        Returns:
+            ProcessingResult with post-processing details
+        """
+        logger.info("Starting post-processing of exe outputs")
+        
+        try:
+            # Determine package name and paths
+            package_name = Path(standardized_path).name
+            
+            # Search for output files in multiple possible locations
+            output_files = self._find_processing_output_files(package_name)
+            
+            if not output_files['colorized_las'] or not output_files['transforms_json']:
+                missing_files = []
+                if not output_files['colorized_las']:
+                    missing_files.append('colorized.las')
+                if not output_files['transforms_json']:
+                    missing_files.append('transforms.json')
+                
+                error_msg = f"Required processing output files not found: {', '.join(missing_files)}"
+                logger.error(error_msg)
+                return ProcessingResult(
+                    success=False,
+                    command="post_processing",
+                    error=error_msg
+                )
+            
+            logger.info(f"Found colorized.las at: {output_files['colorized_las']}")
+            logger.info(f"Found transforms.json at: {output_files['transforms_json']}")
+            
+            # Create final processed package
+            final_package_result = self._create_final_package(
+                standardized_path, 
+                output_files, 
+                package_name
+            )
+            
+            return final_package_result
+            
+        except Exception as e:
+            error_msg = f"Post-processing failed: {e}"
+            logger.error(error_msg)
+            return ProcessingResult(
+                success=False,
+                command="post_processing",
+                error=error_msg
+            )
+    
+    def _find_processing_output_files(self, package_name: str) -> Dict[str, Optional[str]]:
+        """
+        Search for the required processing output files in possible locations
+        
+        Args:
+            package_name: Name of the processed package
+            
+        Returns:
+            Dict with paths to found files or None if not found
+        """
+        result = {
+            'colorized_las': None,
+            'transforms_json': None
+        }
+        
+        # Possible output locations to search
+        search_locations = [
+            # Original configured output path
+            Path(Config.PROCESSING_OUTPUT_PATH) / f"{package_name}_output",
+            
+            # Relative to exe directory (as mentioned by user)
+            self.metacam_cli_path.parent / "processed" / "output" / f"o_{package_name}_output",
+            
+            # Relative to exe directory alternative patterns
+            self.metacam_cli_path.parent / "output" / f"{package_name}_output",
+            self.metacam_cli_path.parent / "output",
+            
+            # Any output directory near exe
+            self.metacam_cli_path.parent / "processed" / "output"
+        ]
+        
+        logger.info(f"Searching for output files in {len(search_locations)} locations:")
+        for location in search_locations:
+            logger.info(f"  - {location}")
+        
+        # Search for files in each location
+        for search_path in search_locations:
+            if not search_path.exists():
+                continue
+                
+            logger.debug(f"Searching in: {search_path}")
+            
+            # Search for colorized.las
+            if not result['colorized_las']:
+                for pattern in ['colorized.las', '**/colorized.las']:
+                    matches = list(search_path.glob(pattern))
+                    if matches:
+                        result['colorized_las'] = str(matches[0])
+                        logger.debug(f"Found colorized.las: {result['colorized_las']}")
+                        break
+            
+            # Search for transforms.json
+            if not result['transforms_json']:
+                for pattern in ['transforms.json', '**/transforms.json']:
+                    matches = list(search_path.glob(pattern))
+                    if matches:
+                        result['transforms_json'] = str(matches[0])
+                        logger.debug(f"Found transforms.json: {result['transforms_json']}")
+                        break
+            
+            # If both files found, stop searching
+            if result['colorized_las'] and result['transforms_json']:
+                logger.info(f"Both required files found in: {search_path}")
+                break
+        
+        return result
+    
+    def _create_final_package(self, original_path: str, output_files: Dict[str, str], package_name: str) -> ProcessingResult:
+        """
+        Create the final processed package by combining original files with processing outputs
+        
+        Args:
+            original_path: Path to original standardized data directory
+            output_files: Dict with paths to processing output files
+            package_name: Name for the final package
+            
+        Returns:
+            ProcessingResult with packaging details
+        """
+        logger.info("Creating final processed package")
+        
+        try:
+            # Create temporary directory for package assembly
+            temp_package_dir = Path(tempfile.mkdtemp(prefix=f"processed_{package_name}_"))
+            logger.info(f"Assembling package in: {temp_package_dir}")
+            
+            # Copy processing output files
+            logger.info("Copying processing output files...")
+            shutil.copy2(output_files['colorized_las'], temp_package_dir / "colorized.las")
+            shutil.copy2(output_files['transforms_json'], temp_package_dir / "transforms.json")
+            
+            # Copy required files from original package
+            original_path = Path(original_path)
+            logger.info("Copying required files from original package...")
+            
+            # Copy metadata.yaml
+            metadata_file = original_path / "metadata.yaml"
+            if metadata_file.exists():
+                shutil.copy2(metadata_file, temp_package_dir / "metadata.yaml")
+                logger.debug("Copied metadata.yaml")
+            else:
+                logger.warning("metadata.yaml not found in original package")
+            
+            # Copy Preview.jpg
+            preview_file = original_path / "Preview.jpg"
+            if preview_file.exists():
+                shutil.copy2(preview_file, temp_package_dir / "Preview.jpg")
+                logger.debug("Copied Preview.jpg")
+            else:
+                logger.warning("Preview.jpg not found in original package")
+            
+            # Copy camera directory (complete structure)
+            camera_dir = original_path / "camera"
+            if camera_dir.exists() and camera_dir.is_dir():
+                shutil.copytree(camera_dir, temp_package_dir / "camera")
+                logger.debug("Copied camera/ directory")
+            else:
+                logger.warning("camera/ directory not found in original package")
+            
+            # Create final zip package
+            final_package_name = f"{package_name}_processed.zip"
+            final_package_path = Path(Config.PROCESSING_OUTPUT_PATH) / final_package_name
+            
+            # Ensure output directory exists
+            final_package_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            logger.info(f"Compressing final package: {final_package_path}")
+            
+            with zipfile.ZipFile(final_package_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for file_path in temp_package_dir.rglob('*'):
+                    if file_path.is_file():
+                        arcname = file_path.relative_to(temp_package_dir)
+                        zipf.write(file_path, arcname)
+                        logger.debug(f"Added to zip: {arcname}")
+            
+            # Get package info
+            package_size = final_package_path.stat().st_size
+            package_size_mb = package_size / (1024 * 1024)
+            
+            # Cleanup temporary directory
+            shutil.rmtree(temp_package_dir)
+            
+            logger.success(f"Final processed package created: {final_package_path}")
+            logger.info(f"Package size: {package_size_mb:.1f} MB")
+            
+            # Verify package contents
+            verification_result = self._verify_final_package(final_package_path)
+            if not verification_result:
+                logger.warning("Package verification failed, but package was created")
+            
+            return ProcessingResult(
+                success=True,
+                command="create_final_package",
+                output=str(final_package_path),
+                duration=0.0
+            )
+            
+        except Exception as e:
+            error_msg = f"Failed to create final package: {e}"
+            logger.error(error_msg)
+            
+            # Cleanup temp directory if it exists
+            if 'temp_package_dir' in locals() and temp_package_dir.exists():
+                try:
+                    shutil.rmtree(temp_package_dir)
+                except:
+                    pass
+            
+            return ProcessingResult(
+                success=False,
+                command="create_final_package",
+                error=error_msg
+            )
+    
+    def _verify_final_package(self, package_path: Path) -> bool:
+        """
+        Verify the final package contains all required files
+        
+        Args:
+            package_path: Path to the final package zip file
+            
+        Returns:
+            bool: True if package verification passes
+        """
+        try:
+            required_files = {
+                'colorized.las',
+                'transforms.json',
+                'metadata.yaml',
+                'Preview.jpg'
+            }
+            
+            required_dirs = {
+                'camera/'
+            }
+            
+            with zipfile.ZipFile(package_path, 'r') as zipf:
+                file_list = set(zipf.namelist())
+                
+                # Check required files
+                missing_files = required_files - file_list
+                if missing_files:
+                    logger.warning(f"Missing files in package: {missing_files}")
+                
+                # Check required directories (look for any files in the dirs)
+                for req_dir in required_dirs:
+                    if not any(f.startswith(req_dir) for f in file_list):
+                        logger.warning(f"Missing directory in package: {req_dir}")
+                        missing_files.add(req_dir)
+                
+                if missing_files:
+                    logger.warning(f"Package verification failed - missing: {missing_files}")
+                    return False
+                else:
+                    logger.info("Package verification passed")
+                    return True
+                    
+        except Exception as e:
+            logger.error(f"Package verification error: {e}")
+            return False
