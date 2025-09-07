@@ -58,31 +58,35 @@ def create_final_package(
         
         shutil.copy2(output_files['transforms_json'], temp_package_dir / "transforms.json")
         
-        # Copy required files from original package (解压的根目录)
+        # Copy required files from original package (递归搜索解压目录)
         original_path = Path(original_path)
-        logger.info(f"Copying required files from original extracted directory: {original_path}")
+        logger.info(f"Recursively searching for original files in: {original_path}")
         
-        # Copy metadata.yaml
-        metadata_file = original_path / "metadata.yaml"
-        if metadata_file.exists():
-            logger.info("Copying metadata.yaml...")
+        # Copy metadata.yaml (递归搜索)
+        metadata_files = list(original_path.rglob("metadata.yaml"))
+        if metadata_files:
+            metadata_file = metadata_files[0]  # 使用找到的第一个
+            logger.info(f"Found metadata.yaml at: {metadata_file}")
             shutil.copy2(metadata_file, temp_package_dir / "metadata.yaml")
             logger.info("✓ Copied metadata.yaml")
         else:
-            logger.warning(f"metadata.yaml not found in: {original_path}")
+            logger.warning(f"metadata.yaml not found in: {original_path} (searched recursively)")
         
-        # Copy Preview.jpg
-        preview_file = original_path / "Preview.jpg"
-        if preview_file.exists():
-            logger.info("Copying Preview.jpg...")
+        # Copy Preview.jpg (递归搜索)
+        preview_files = list(original_path.rglob("Preview.jpg"))
+        if preview_files:
+            preview_file = preview_files[0]  # 使用找到的第一个
+            logger.info(f"Found Preview.jpg at: {preview_file}")
             shutil.copy2(preview_file, temp_package_dir / "Preview.jpg")
             logger.info("✓ Copied Preview.jpg")
         else:
-            logger.warning(f"Preview.jpg not found in: {original_path}")
+            logger.warning(f"Preview.jpg not found in: {original_path} (searched recursively)")
         
-        # Copy camera directory (complete structure)
-        camera_dir = original_path / "camera"
-        if camera_dir.exists() and camera_dir.is_dir():
+        # Copy camera directory (递归搜索)
+        camera_dirs = [d for d in original_path.rglob("camera") if d.is_dir()]
+        if camera_dirs:
+            camera_dir = camera_dirs[0]  # 使用找到的第一个
+            logger.info(f"Found camera/ directory at: {camera_dir}")
             # Count files first to show progress
             total_files = sum(1 for _ in camera_dir.rglob('*') if _.is_file())
             logger.info(f"Copying camera/ directory ({total_files} files)... This may take a moment")
@@ -94,7 +98,7 @@ def create_final_package(
             duration = (end_time - start_time).total_seconds()
             logger.info(f"✓ Copied camera/ directory ({total_files} files) in {duration:.1f}s")
         else:
-            logger.warning(f"camera/ directory not found in: {original_path}")
+            logger.warning(f"camera/ directory not found in: {original_path} (searched recursively)")
         
         # Create final zip package with file_id-based naming if available
         if file_id:
