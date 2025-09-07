@@ -452,6 +452,9 @@ class GoogleDriveMonitorSystem:
                             logger.warning("无法解压文件用于数据处理")
                     
                     if processing_path:
+                        # 保存原始解压路径，用于后续包创建时查找原始文件
+                        original_extracted_path = processing_path
+                        
                         processing_results = self.data_processor.process_validated_data(
                             processing_path, validation_for_processing, file_id
                         )
@@ -500,11 +503,11 @@ class GoogleDriveMonitorSystem:
                                     if output_files.get('colorized_las') and output_files.get('transforms_json'):
                                         logger.info("Creating final processed package...")
                                         
-                                        # Use the processing_path as original_path for package creation
+                                        # Use the original_extracted_path (未处理的解压路径) for finding original files
                                         package_result = create_final_package(
-                                            original_path=processing_path,
+                                            original_path=original_extracted_path,
                                             output_files=output_files,
-                                            package_name=Path(processing_path).name,
+                                            package_name=Path(original_extracted_path).name,
                                             file_id=file_id,
                                             output_dir="./processed"
                                         )

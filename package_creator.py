@@ -58,63 +58,43 @@ def create_final_package(
         
         shutil.copy2(output_files['transforms_json'], temp_package_dir / "transforms.json")
         
-        # Copy required files from original package
-        # Files might be in root or in data/ subdirectory after standardization
+        # Copy required files from original package (解压的根目录)
         original_path = Path(original_path)
-        logger.info("Copying required files from original package...")
-        
-        # Search locations for original files (root first, then data/ subdirectory)
-        search_paths = [original_path, original_path / "data"]
+        logger.info(f"Copying required files from original extracted directory: {original_path}")
         
         # Copy metadata.yaml
-        metadata_found = False
-        for search_path in search_paths:
-            metadata_file = search_path / "metadata.yaml"
-            if metadata_file.exists():
-                logger.info(f"Found metadata.yaml in: {search_path}")
-                shutil.copy2(metadata_file, temp_package_dir / "metadata.yaml")
-                logger.info("✓ Copied metadata.yaml")
-                metadata_found = True
-                break
-        
-        if not metadata_found:
-            logger.warning(f"metadata.yaml not found in: {[str(p) for p in search_paths]}")
+        metadata_file = original_path / "metadata.yaml"
+        if metadata_file.exists():
+            logger.info("Copying metadata.yaml...")
+            shutil.copy2(metadata_file, temp_package_dir / "metadata.yaml")
+            logger.info("✓ Copied metadata.yaml")
+        else:
+            logger.warning(f"metadata.yaml not found in: {original_path}")
         
         # Copy Preview.jpg
-        preview_found = False
-        for search_path in search_paths:
-            preview_file = search_path / "Preview.jpg"
-            if preview_file.exists():
-                logger.info(f"Found Preview.jpg in: {search_path}")
-                shutil.copy2(preview_file, temp_package_dir / "Preview.jpg")
-                logger.info("✓ Copied Preview.jpg")
-                preview_found = True
-                break
-        
-        if not preview_found:
-            logger.warning(f"Preview.jpg not found in: {[str(p) for p in search_paths]}")
+        preview_file = original_path / "Preview.jpg"
+        if preview_file.exists():
+            logger.info("Copying Preview.jpg...")
+            shutil.copy2(preview_file, temp_package_dir / "Preview.jpg")
+            logger.info("✓ Copied Preview.jpg")
+        else:
+            logger.warning(f"Preview.jpg not found in: {original_path}")
         
         # Copy camera directory (complete structure)
-        camera_found = False
-        for search_path in search_paths:
-            camera_dir = search_path / "camera"
-            if camera_dir.exists() and camera_dir.is_dir():
-                logger.info(f"Found camera/ directory in: {search_path}")
-                # Count files first to show progress
-                total_files = sum(1 for _ in camera_dir.rglob('*') if _.is_file())
-                logger.info(f"Copying camera/ directory ({total_files} files)... This may take a moment")
-                
-                start_time = datetime.now()
-                shutil.copytree(camera_dir, temp_package_dir / "camera")
-                end_time = datetime.now()
-                
-                duration = (end_time - start_time).total_seconds()
-                logger.info(f"✓ Copied camera/ directory ({total_files} files) in {duration:.1f}s")
-                camera_found = True
-                break
-        
-        if not camera_found:
-            logger.warning(f"camera/ directory not found in: {[str(p) for p in search_paths]}")
+        camera_dir = original_path / "camera"
+        if camera_dir.exists() and camera_dir.is_dir():
+            # Count files first to show progress
+            total_files = sum(1 for _ in camera_dir.rglob('*') if _.is_file())
+            logger.info(f"Copying camera/ directory ({total_files} files)... This may take a moment")
+            
+            start_time = datetime.now()
+            shutil.copytree(camera_dir, temp_package_dir / "camera")
+            end_time = datetime.now()
+            
+            duration = (end_time - start_time).total_seconds()
+            logger.info(f"✓ Copied camera/ directory ({total_files} files) in {duration:.1f}s")
+        else:
+            logger.warning(f"camera/ directory not found in: {original_path}")
         
         # Create final zip package with file_id-based naming if available
         if file_id:
