@@ -1368,24 +1368,34 @@ class DataProcessor:
             # Copy metadata.yaml
             metadata_file = original_path / "metadata.yaml"
             if metadata_file.exists():
+                logger.info("Copying metadata.yaml...")
                 shutil.copy2(metadata_file, temp_package_dir / "metadata.yaml")
-                logger.debug("Copied metadata.yaml")
+                logger.info("✓ Copied metadata.yaml")
             else:
                 logger.warning("metadata.yaml not found in original package")
             
             # Copy Preview.jpg
             preview_file = original_path / "Preview.jpg"
             if preview_file.exists():
+                logger.info("Copying Preview.jpg...")
                 shutil.copy2(preview_file, temp_package_dir / "Preview.jpg")
-                logger.debug("Copied Preview.jpg")
+                logger.info("✓ Copied Preview.jpg")
             else:
                 logger.warning("Preview.jpg not found in original package")
             
             # Copy camera directory (complete structure)
             camera_dir = original_path / "camera"
             if camera_dir.exists() and camera_dir.is_dir():
+                # Count files first to show progress
+                total_files = sum(1 for _ in camera_dir.rglob('*') if _.is_file())
+                logger.info(f"Copying camera/ directory ({total_files} files)... This may take a moment")
+                
+                start_time = datetime.now()
                 shutil.copytree(camera_dir, temp_package_dir / "camera")
-                logger.debug("Copied camera/ directory")
+                end_time = datetime.now()
+                
+                duration = (end_time - start_time).total_seconds()
+                logger.info(f"✓ Copied camera/ directory ({total_files} files) in {duration:.1f}s")
             else:
                 logger.warning("camera/ directory not found in original package")
             
@@ -1396,14 +1406,27 @@ class DataProcessor:
             # Ensure output directory exists
             final_package_path.parent.mkdir(parents=True, exist_ok=True)
             
+            # Count total files to compress for progress tracking
+            all_files = [f for f in temp_package_dir.rglob('*') if f.is_file()]
+            total_files_to_compress = len(all_files)
+            
             logger.info(f"Compressing final package: {final_package_path}")
+            logger.info(f"Compressing {total_files_to_compress} files... This may take several minutes")
+            
+            compression_start = datetime.now()
             
             with zipfile.ZipFile(final_package_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for file_path in temp_package_dir.rglob('*'):
-                    if file_path.is_file():
-                        arcname = file_path.relative_to(temp_package_dir)
-                        zipf.write(file_path, arcname)
-                        logger.debug(f"Added to zip: {arcname}")
+                for i, file_path in enumerate(all_files, 1):
+                    arcname = file_path.relative_to(temp_package_dir)
+                    zipf.write(file_path, arcname)
+                    
+                    # Log progress every 50 files to avoid spam
+                    if i % 50 == 0 or i == total_files_to_compress:
+                        progress_pct = (i / total_files_to_compress) * 100
+                        logger.info(f"Compression progress: {i}/{total_files_to_compress} files ({progress_pct:.1f}%)")
+            
+            compression_duration = (datetime.now() - compression_start).total_seconds()
+            logger.info(f"✓ Compression completed in {compression_duration:.1f}s")
             
             # Get package info
             package_size = final_package_path.stat().st_size
