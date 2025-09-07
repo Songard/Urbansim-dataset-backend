@@ -43,14 +43,15 @@ preserved_directories:
 
 # 处理结果文件（从exe输出获取）
 processing_output_files:
-  - path: "colorized.las"
-    description: "处理后的彩色点云文件"
+  - path: "*"
+    description: "处理后的点云文件（保持原始文件名）"
     file_type: "binary"
     source: "processing_output"
     min_size: 1048576  # 1MB
     max_size: 5368709120  # 5GB
-    extensions: [".las"]
+    extensions: [".las", ".ply", ".pcd", ".xyz"]  # 支持的点云格式
     required: true
+    naming_note: "保持exe输出的原始文件名不变，支持多种点云格式"
     
   - path: "transforms.json"
     description: "三维变换矩阵文件"

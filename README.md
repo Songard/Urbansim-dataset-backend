@@ -197,7 +197,7 @@ LOG_BACKUP_COUNT=5                   # Number of backup log files
 PROCESSORS_EXE_PATH=./processors/exe_packages  # Path to processing executables
 PROCESSING_TIMEOUT_SECONDS=600       # General processing timeout (10 minutes)
 METACAM_CLI_TIMEOUT_SECONDS=3600     # MetaCam CLI specific timeout (1 hour)
-PROCESSING_OUTPUT_PATH=./processed/output     # Processing results output directory
+PROCESSING_OUTPUT_PATH=./processed/output     # Intermediate processing output directory (final packages go to ./processed/)
 AUTO_START_PROCESSING=True           # Automatically start processing after validation
 PROCESSING_RETRY_ATTEMPTS=2          # Number of retry attempts on failure
 KEEP_ORIGINAL_DATA=True              # Preserve original data after processing
@@ -298,7 +298,7 @@ After successful 3D reconstruction processing, the system automatically creates 
 - **`transforms.json`**: Camera transformation matrices, coordinate system information, and 3D alignment data
 - **Preserved Files**: Essential metadata and calibration data from the original package for reference
 
-**Output Location**: Final packages are saved to the configured `PROCESSING_OUTPUT_PATH` directory (default: `./processed/output/`)
+**Output Location**: Final packages are saved to the `./processed/` directory for unified output management
 
 **Package Search Logic**: The system searches multiple locations for processing outputs to ensure reliability:
 - Configured output directory

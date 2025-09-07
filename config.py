@@ -229,7 +229,7 @@ class Config:
     TRANSIENT_WPO_MEDIUM_PENALTY = float(os.getenv('TRANSIENT_WPO_MEDIUM_PENALTY', '3.0'))
     
     # SAI指标评分影响
-    TRANSIENT_SAI_SEVERE_THRESHOLD = float(os.getenv('TRANSIENT_SAI_SEVERE_THRESHOLD', '25.0'))
+    TRANSIENT_SAI_SEVERE_THRESHOLD = float(os.getenv('TRANSIENT_SAI_SEVERE_THRESHOLD', '75.0')) # debug：75.0
     TRANSIENT_SAI_SEVERE_PENALTY = float(os.getenv('TRANSIENT_SAI_SEVERE_PENALTY', '20.0'))
     TRANSIENT_SAI_HIGH_THRESHOLD = float(os.getenv('TRANSIENT_SAI_HIGH_THRESHOLD', '15.0'))
     TRANSIENT_SAI_HIGH_PENALTY = float(os.getenv('TRANSIENT_SAI_HIGH_PENALTY', '10.0'))
@@ -261,10 +261,13 @@ class Config:
     # Metacam CLI 处理配置
     METACAM_CLI_MODE = os.getenv('METACAM_CLI_MODE', '0')  # 0=fast, 1=precision
     METACAM_CLI_COLOR = os.getenv('METACAM_CLI_COLOR', '1')  # 0=No, 1=Yes
-    METACAM_CLI_TIMEOUT_SECONDS = int(os.getenv('METACAM_CLI_TIMEOUT_SECONDS', '3600'))  # 1小时
+    METACAM_CLI_TIMEOUT_SECONDS = int(os.getenv('METACAM_CLI_TIMEOUT_SECONDS', '3'))  # 1小时超时
     
     # 场景类型判断阈值（用于自动选择scene参数）
     INDOOR_SCALE_THRESHOLD_M = float(os.getenv('INDOOR_SCALE_THRESHOLD_M', '30'))  # 30米以下认为是narrow场景
+    
+    # 处理输出文件格式配置
+    SUPPORTED_POINT_CLOUD_EXTENSIONS = os.getenv('SUPPORTED_POINT_CLOUD_EXTENSIONS', '.las,.ply,.pcd,.xyz').split(',')
     
     # 获取场景特定阈值的辅助方法
     @classmethod

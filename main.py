@@ -453,7 +453,7 @@ class GoogleDriveMonitorSystem:
                     
                     if processing_path:
                         processing_results = self.data_processor.process_validated_data(
-                            processing_path, validation_for_processing
+                            processing_path, validation_for_processing, file_id
                         )
                         
                         if processing_results['overall_success']:
@@ -461,11 +461,16 @@ class GoogleDriveMonitorSystem:
                             logger.success(f"数据处理完成: {file_name}")
                             
                             # 记录处理步骤信息
+                            post_processing_result = None
                             for step in processing_results.get('processing_steps', []):
                                 step_name = step.get('step', 'unknown')
                                 step_result = step.get('result', {})
                                 step_success = step_result.get('success', False)
                                 step_duration = step_result.get('duration', 0)
+                                
+                                # Keep track of post_processing result for package creation
+                                if step_name == 'post_processing':
+                                    post_processing_result = step_result
                                 
                                 # Format duration display
                                 if step_duration >= 3600:  # >= 1 hour
@@ -481,6 +486,44 @@ class GoogleDriveMonitorSystem:
                                 
                                 status_icon = "✓" if step_success else "✗"
                                 logger.info(f"  {step_name}: {status_icon} ({duration_str})")
+                            
+                            # Create final package if post-processing found output files
+                            if post_processing_result and post_processing_result.get('success') and post_processing_result.get('output'):
+                                try:
+                                    import ast
+                                    from package_creator import create_final_package
+                                    
+                                    # Parse output files dictionary from post-processing result
+                                    output_files_str = post_processing_result.get('output', '{}')
+                                    output_files = ast.literal_eval(output_files_str)
+                                    
+                                    if output_files.get('colorized_las') and output_files.get('transforms_json'):
+                                        logger.info("Creating final processed package...")
+                                        
+                                        # Use the processing_path as original_path for package creation
+                                        package_result = create_final_package(
+                                            original_path=processing_path,
+                                            output_files=output_files,
+                                            package_name=Path(processing_path).name,
+                                            file_id=file_id,
+                                            output_dir="./processed"
+                                        )
+                                        
+                                        if package_result['success']:
+                                            final_package_path = package_result['package_path']
+                                            package_size_mb = package_result['package_size_mb']
+                                            compression_duration = package_result['compression_duration']
+                                            
+                                            logger.success(f"Final processed package created: {final_package_path}")
+                                            logger.info(f"Package size: {package_size_mb:.1f} MB (compressed in {compression_duration:.1f}s)")
+                                            processing_results['final_package_path'] = final_package_path
+                                        else:
+                                            error_msg = package_result.get('error', 'Unknown package creation error')
+                                            logger.error(f"Failed to create final package: {error_msg}")
+                                    else:
+                                        logger.warning("Cannot create final package: required output files not found")
+                                except Exception as e:
+                                    logger.error(f"Error creating final package: {e}")
                         else:
                             processing_status = "失败"
                             errors = processing_results.get('errors', [])

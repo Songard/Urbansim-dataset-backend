@@ -112,7 +112,7 @@ class DataProcessor:
     
     Usage:
         processor = DataProcessor()
-        result = processor.process_validated_data(data_path, validation_result)
+        result = processor.process_validated_data(data_path, validation_result, file_id)
         if result['overall_success'] and 'final_package_path' in result:
             print(f"Processing completed: {result['final_package_path']}")
     """
@@ -150,7 +150,7 @@ class DataProcessor:
         
         return status
     
-    def process_validated_data(self, data_path: str, validation_result: Dict) -> Dict[str, Any]:
+    def process_validated_data(self, data_path: str, validation_result: Dict, file_id: str = None) -> Dict[str, Any]:
         """
         Process validated MetaCam data package using the processing pipeline
         
@@ -162,6 +162,7 @@ class DataProcessor:
         Args:
             data_path: Path to the extracted data package directory
             validation_result: Validation result containing metadata and scores
+            file_id: Google Drive file ID for final package naming (optional)
             
         Returns:
             Dict containing processing results, status, and detailed step information
@@ -238,7 +239,7 @@ class DataProcessor:
             # Step 3: Post-process the outputs and create final package
             # This runs regardless of metacam_cli success/failure to maximize data recovery
             logger.info("Starting post-processing phase (regardless of exe completion status)")
-            step3_result = self._post_process_results(standardized_path, validation_result)
+            step3_result = self._post_process_results(standardized_path, validation_result, file_id)
             processing_results['processing_steps'].append({
                 'step': 'post_processing',
                 'result': step3_result.to_dict() if step3_result else {'success': False, 'error': 'No post-processing result'}
@@ -1111,7 +1112,7 @@ class DataProcessor:
                 error=error_msg
             )
     
-    def _post_process_results(self, standardized_path: str, validation_result: Dict) -> Optional[ProcessingResult]:
+    def _post_process_results(self, standardized_path: str, validation_result: Dict, file_id: str = None) -> Optional[ProcessingResult]:
         """
         Post-process the exe outputs to create final processed package
         
@@ -1123,6 +1124,7 @@ class DataProcessor:
         Args:
             standardized_path: Path to the original standardized data directory
             validation_result: Validation result for context
+            file_id: Google Drive file ID for final package naming (optional)
             
         Returns:
             ProcessingResult with post-processing details
@@ -1155,14 +1157,13 @@ class DataProcessor:
             logger.info(f"  • colorized.las: {output_files['colorized_las']}")
             logger.info(f"  • transforms.json: {output_files['transforms_json']}")
             
-            # Create final processed package
-            final_package_result = self._create_final_package(
-                standardized_path, 
-                output_files, 
-                package_name
+            # Return successful result with file locations for main loop to handle
+            return ProcessingResult(
+                success=True,
+                command="post_processing_file_search",
+                output=str(output_files),  # Pass file locations to main loop
+                duration=0.0
             )
-            
-            return final_package_result
             
         except Exception as e:
             error_msg = f"Post-processing failed: {e}"
@@ -1325,206 +1326,3 @@ class DataProcessor:
         
         return result
     
-    def _create_final_package(self, original_path: str, output_files: Dict[str, str], package_name: str) -> ProcessingResult:
-        """
-        Create the final processed package by combining original files with processing outputs
-        
-        Args:
-            original_path: Path to original standardized data directory
-            output_files: Dict with paths to processing output files
-            package_name: Name for the final package
-            
-        Returns:
-            ProcessingResult with packaging details
-        """
-        logger.info("Creating final processed package")
-        
-        try:
-            # Create temporary directory for package assembly
-            temp_package_dir = Path(tempfile.mkdtemp(prefix=f"processed_{package_name}_"))
-            logger.info(f"Assembling package in: {temp_package_dir}")
-            
-            # Copy processing output files
-            logger.info("Copying processing output files...")
-            
-            # Copy point cloud file (may have different original name)
-            original_pc_file = Path(output_files['colorized_las'])
-            if original_pc_file.suffix.lower() == '.ply':
-                # If original is .ply, keep as .ply for compatibility
-                final_pc_name = "processed_pointcloud.ply"
-            else:
-                # Default to .las
-                final_pc_name = "colorized.las" 
-            
-            shutil.copy2(output_files['colorized_las'], temp_package_dir / final_pc_name)
-            logger.info(f"Copied point cloud file as: {final_pc_name} (from {original_pc_file.name})")
-            
-            shutil.copy2(output_files['transforms_json'], temp_package_dir / "transforms.json")
-            
-            # Copy required files from original package
-            original_path = Path(original_path)
-            logger.info("Copying required files from original package...")
-            
-            # Copy metadata.yaml
-            metadata_file = original_path / "metadata.yaml"
-            if metadata_file.exists():
-                logger.info("Copying metadata.yaml...")
-                shutil.copy2(metadata_file, temp_package_dir / "metadata.yaml")
-                logger.info("✓ Copied metadata.yaml")
-            else:
-                logger.warning("metadata.yaml not found in original package")
-            
-            # Copy Preview.jpg
-            preview_file = original_path / "Preview.jpg"
-            if preview_file.exists():
-                logger.info("Copying Preview.jpg...")
-                shutil.copy2(preview_file, temp_package_dir / "Preview.jpg")
-                logger.info("✓ Copied Preview.jpg")
-            else:
-                logger.warning("Preview.jpg not found in original package")
-            
-            # Copy camera directory (complete structure)
-            camera_dir = original_path / "camera"
-            if camera_dir.exists() and camera_dir.is_dir():
-                # Count files first to show progress
-                total_files = sum(1 for _ in camera_dir.rglob('*') if _.is_file())
-                logger.info(f"Copying camera/ directory ({total_files} files)... This may take a moment")
-                
-                start_time = datetime.now()
-                shutil.copytree(camera_dir, temp_package_dir / "camera")
-                end_time = datetime.now()
-                
-                duration = (end_time - start_time).total_seconds()
-                logger.info(f"✓ Copied camera/ directory ({total_files} files) in {duration:.1f}s")
-            else:
-                logger.warning("camera/ directory not found in original package")
-            
-            # Create final zip package
-            final_package_name = f"{package_name}_processed.zip"
-            final_package_path = Path(Config.PROCESSING_OUTPUT_PATH) / final_package_name
-            
-            # Ensure output directory exists
-            final_package_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Count total files to compress for progress tracking
-            all_files = [f for f in temp_package_dir.rglob('*') if f.is_file()]
-            total_files_to_compress = len(all_files)
-            
-            logger.info(f"Compressing final package: {final_package_path}")
-            logger.info(f"Compressing {total_files_to_compress} files... This may take several minutes")
-            
-            compression_start = datetime.now()
-            
-            with zipfile.ZipFile(final_package_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for i, file_path in enumerate(all_files, 1):
-                    arcname = file_path.relative_to(temp_package_dir)
-                    zipf.write(file_path, arcname)
-                    
-                    # Log progress every 50 files to avoid spam
-                    if i % 50 == 0 or i == total_files_to_compress:
-                        progress_pct = (i / total_files_to_compress) * 100
-                        logger.info(f"Compression progress: {i}/{total_files_to_compress} files ({progress_pct:.1f}%)")
-            
-            compression_duration = (datetime.now() - compression_start).total_seconds()
-            logger.info(f"✓ Compression completed in {compression_duration:.1f}s")
-            
-            # Get package info
-            package_size = final_package_path.stat().st_size
-            package_size_mb = package_size / (1024 * 1024)
-            
-            # Cleanup temporary directory
-            shutil.rmtree(temp_package_dir)
-            
-            logger.success(f"Final processed package created: {final_package_path}")
-            logger.info(f"Package size: {package_size_mb:.1f} MB")
-            
-            # Verify package contents
-            verification_result = self._verify_final_package(final_package_path)
-            if not verification_result:
-                logger.warning("Package verification failed, but package was created")
-            
-            return ProcessingResult(
-                success=True,
-                command="create_final_package",
-                output=str(final_package_path),
-                duration=0.0
-            )
-            
-        except Exception as e:
-            error_msg = f"Failed to create final package: {e}"
-            logger.error(error_msg)
-            
-            # Cleanup temp directory if it exists
-            if 'temp_package_dir' in locals() and temp_package_dir.exists():
-                try:
-                    shutil.rmtree(temp_package_dir)
-                except:
-                    pass
-            
-            return ProcessingResult(
-                success=False,
-                command="create_final_package",
-                error=error_msg
-            )
-    
-    def _verify_final_package(self, package_path: Path) -> bool:
-        """
-        Verify the final package contains all required files
-        
-        Args:
-            package_path: Path to the final package zip file
-            
-        Returns:
-            bool: True if package verification passes
-        """
-        try:
-            # Required files - check for alternative point cloud file names
-            required_core_files = {
-                'transforms.json',
-                'metadata.yaml',
-                'Preview.jpg'
-            }
-            
-            required_dirs = {
-                'camera/'
-            }
-            
-            with zipfile.ZipFile(package_path, 'r') as zipf:
-                file_list = set(zipf.namelist())
-                
-                # Check for point cloud file (may have different names)
-                point_cloud_found = False
-                point_cloud_candidates = ['colorized.las', 'processed_pointcloud.ply', 'uncolorized.ply']
-                for candidate in point_cloud_candidates:
-                    if candidate in file_list:
-                        point_cloud_found = True
-                        logger.info(f"Found point cloud file: {candidate}")
-                        break
-                
-                if not point_cloud_found:
-                    logger.warning("No point cloud file found in package")
-                
-                # Check other required files
-                missing_files = required_core_files - file_list
-                if missing_files:
-                    logger.warning(f"Missing files in package: {missing_files}")
-                
-                # Check required directories (look for any files in the dirs)
-                for req_dir in required_dirs:
-                    if not any(f.startswith(req_dir) for f in file_list):
-                        logger.warning(f"Missing directory in package: {req_dir}")
-                        missing_files.add(req_dir)
-                
-                if missing_files or not point_cloud_found:
-                    total_missing = list(missing_files)
-                    if not point_cloud_found:
-                        total_missing.append("point_cloud_file")
-                    logger.warning(f"Package verification failed - missing: {total_missing}")
-                    return False
-                else:
-                    logger.info("Package verification passed")
-                    return True
-                    
-        except Exception as e:
-            logger.error(f"Package verification error: {e}")
-            return False

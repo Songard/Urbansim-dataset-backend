@@ -61,6 +61,15 @@ METACAM_CLI_TIMEOUT_SECONDS = 3600
 INDOOR_SCALE_THRESHOLD_M = 30.0
 ```
 
+## Export Structure
+
+**Key Changes**: As of the latest version, the export logic has been moved from the processor module to the main application loop for better organization:
+
+- **Intermediate Processing**: Executables output to `./processed/output/` (configurable via `PROCESSING_OUTPUT_PATH`)
+- **Final Packages**: Created by main loop and saved to `./processed/` directory
+- **Unified Output**: All user-facing results go to the same `./processed/` directory
+- **File ID Naming**: Final packages use Google Drive file IDs for unique identification
+
 ## Processing Flow
 
 The complete processing pipeline consists of four main stages:
@@ -90,14 +99,15 @@ The complete processing pipeline consists of four main stages:
 
 ### 4. Post-Processing Phase
 - **Output File Search**: Multi-location search for required processing results:
-  - `colorized.las` - Final 3D point cloud with color information
+  - `colorized.las` - Final 3D point cloud with color information (or alternative formats like `.ply`)
   - `transforms.json` - Camera transformation matrices and poses
 - **Search Locations**:
   - Configured output directory (`PROCESSING_OUTPUT_PATH`)
   - Executable-relative paths (`./processed/output/`)
   - Alternative naming patterns (`o_{package_name}_output`)
-- **Final Package Assembly**: Creates `{package_name}_processed.zip` containing:
-  - Processing results (colorized.las, transforms.json)
+- **File Location Return**: Returns found file paths to main application loop
+- **Main Loop Package Assembly**: Main application creates final packages in `./processed/` using:
+  - Processing results (colorized.las/processed_pointcloud.ply, transforms.json)
   - Preserved original files (metadata.yaml, Preview.jpg, camera/)
 - **Package Verification**: Validates final package contents and integrity
 
@@ -117,20 +127,27 @@ processors/exe_packages/output/{package_name}_output/
 ### Final Processed Package
 The system creates final processed packages at:
 ```
-processed/output/{package_name}_processed.zip
+processed/{file_id}_processed.zip    # Using Google Drive file ID for unique naming
+# OR
+processed/{package_name}_processed.zip    # Fallback if file_id not available
 ```
 
 **Package Contents:**
 ```
-{package_name}_processed.zip
-├── colorized.las          # 3D point cloud with color data
-├── transforms.json        # Camera transformation matrices
-├── metadata.yaml          # Original metadata (preserved)
-├── Preview.jpg            # Original preview (preserved)
-└── camera/                # Camera calibration data (preserved)
-    ├── left/              # Left camera data
-    └── right/             # Right camera data
+{file_id}_processed.zip
+├── [original_pointcloud_name]  # 3D point cloud (保持exe输出的原始文件名)
+├── transforms.json            # Camera transformation matrices
+├── metadata.yaml              # Original metadata (preserved)
+├── Preview.jpg                # Original preview (preserved)
+└── camera/                    # Camera calibration data (preserved)
+    ├── left/                  # Left camera data
+    └── right/                 # Right camera data
 ```
+
+**Point Cloud Format Handling:**
+- Original filename is preserved exactly as output by exe (e.g., `uncolorized.ply` stays `uncolorized.ply`)
+- Supported formats: `.las`, `.ply`, `.pcd`, `.xyz` (configurable via `SUPPORTED_POINT_CLOUD_EXTENSIONS`)
+- No renaming or format conversion is performed
 
 ### Processing Logs
 Detailed processing logs include:
@@ -279,7 +296,7 @@ PROCESSING_TIMEOUT_SECONDS = 600        # validation_generator timeout
 METACAM_CLI_TIMEOUT_SECONDS = 3600      # metacam_cli timeout (1 hour)
 
 # Output directories  
-PROCESSING_OUTPUT_PATH = "./processed/output"
+PROCESSING_OUTPUT_PATH = "./processed/output"    # Intermediate exe outputs (final packages go to ./processed/)
 
 # Processing behavior
 AUTO_START_PROCESSING = True             # Auto-start after validation
@@ -290,6 +307,9 @@ KEEP_ORIGINAL_DATA = True                # Preserve original files
 METACAM_CLI_MODE = "0"                   # 0=fast, 1=precision
 METACAM_CLI_COLOR = "1"                  # 0=disable, 1=enable
 INDOOR_SCALE_THRESHOLD_M = 30.0          # Narrow scene threshold
+
+# Point cloud file format handling
+SUPPORTED_POINT_CLOUD_EXTENSIONS = ".las,.ply,.pcd,.xyz"  # Supported point cloud formats
 ```
 
 ## Notes
