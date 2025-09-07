@@ -231,11 +231,13 @@ class DataProcessor:
                 error_msg = f"metacam_cli failed: {step2_result.error}"
                 processing_results['errors'].append(error_msg)
                 logger.error(error_msg)
-                return processing_results
-            
-            logger.info("metacam_cli completed successfully")
+                logger.warning("metacam_cli failed, but continuing with post-processing to check for any output files...")
+            else:
+                logger.info("metacam_cli completed successfully")
             
             # Step 3: Post-process the outputs and create final package
+            # This runs regardless of metacam_cli success/failure to maximize data recovery
+            logger.info("Starting post-processing phase (regardless of exe completion status)")
             step3_result = self._post_process_results(standardized_path, validation_result)
             processing_results['processing_steps'].append({
                 'step': 'post_processing',
@@ -1233,21 +1235,31 @@ class DataProcessor:
             except Exception as e:
                 logger.warning(f"  → Could not list directory contents: {e}")
             
-            # Search for colorized.las
+            # Search for colorized.las (or alternative point cloud files)
             if not result['colorized_las']:
-                logger.info(f"  → Searching for colorized.las...")
-                for pattern in ['colorized.las', '**/colorized.las']:
+                logger.info(f"  → Searching for point cloud files (colorized.las, uncolorized.ply, etc.)...")
+                # Try multiple possible file names and extensions
+                patterns = [
+                    'colorized.las', '**/colorized.las',
+                    'uncolorized.ply', '**/uncolorized.ply', 
+                    'colorized.ply', '**/colorized.ply',
+                    '*.las', '**//*.las',
+                    '*.ply', '**//*.ply'
+                ]
+                
+                for pattern in patterns:
                     logger.info(f"    - Trying pattern: {pattern}")
                     matches = list(search_path.glob(pattern))
                     if matches:
                         result['colorized_las'] = str(matches[0])
-                        logger.info(f"    ✓ FOUND colorized.las at: {result['colorized_las']}")
+                        logger.info(f"    [OK] FOUND point cloud file at: {result['colorized_las']}")
+                        logger.info(f"        (Note: Using {matches[0].name} as point cloud file)")
                         break
                     else:
-                        logger.info(f"    ✗ No match for pattern: {pattern}")
+                        logger.info(f"    [NO] No match for pattern: {pattern}")
                 
                 if not result['colorized_las']:
-                    logger.info(f"  → colorized.las not found in this location")
+                    logger.info(f"  → No point cloud files found in this location")
             else:
                 logger.info(f"  → colorized.las already found, skipping search")
             
@@ -1259,10 +1271,10 @@ class DataProcessor:
                     matches = list(search_path.glob(pattern))
                     if matches:
                         result['transforms_json'] = str(matches[0])
-                        logger.info(f"    ✓ FOUND transforms.json at: {result['transforms_json']}")
+                        logger.info(f"    [OK] FOUND transforms.json at: {result['transforms_json']}")
                         break
                     else:
-                        logger.info(f"    ✗ No match for pattern: {pattern}")
+                        logger.info(f"    [NO] No match for pattern: {pattern}")
                 
                 if not result['transforms_json']:
                     logger.info(f"  → transforms.json not found in this location")
@@ -1271,7 +1283,7 @@ class DataProcessor:
             
             # If both files found, stop searching
             if result['colorized_las'] and result['transforms_json']:
-                logger.info(f"🎉 SUCCESS: Both required files found in location {i}: {search_path}")
+                logger.info(f"[SUCCESS] Both required files found in location {i}: {search_path}")
                 break
             else:
                 files_found = []
@@ -1288,9 +1300,9 @@ class DataProcessor:
         # Final search results summary
         logger.info(f"=== Search completed ===")
         if result['colorized_las'] and result['transforms_json']:
-            logger.info(f"✅ SEARCH SUCCESS: Both required files found!")
-            logger.info(f"  • colorized.las: {result['colorized_las']}")
-            logger.info(f"  • transforms.json: {result['transforms_json']}")
+            logger.info(f"[SUCCESS] SEARCH SUCCESS: Both required files found!")
+            logger.info(f"  - colorized.las: {result['colorized_las']}")
+            logger.info(f"  - transforms.json: {result['transforms_json']}")
         else:
             missing_files = []
             if not result['colorized_las']:
@@ -1298,14 +1310,14 @@ class DataProcessor:
             if not result['transforms_json']:
                 missing_files.append("transforms.json")
             
-            logger.error(f"❌ SEARCH FAILED: Missing files: {', '.join(missing_files)}")
+            logger.error(f"[FAILED] SEARCH FAILED: Missing files: {', '.join(missing_files)}")
             
             if result['colorized_las']:
-                logger.info(f"  • Found colorized.las: {result['colorized_las']}")
+                logger.info(f"  - Found colorized.las: {result['colorized_las']}")
             if result['transforms_json']:
-                logger.info(f"  • Found transforms.json: {result['transforms_json']}")
+                logger.info(f"  - Found transforms.json: {result['transforms_json']}")
             
-            logger.info(f"💡 Troubleshooting suggestions:")
+            logger.info(f"[TIPS] Troubleshooting suggestions:")
             logger.info(f"  1. Check if metacam_cli.exe completed successfully")
             logger.info(f"  2. Verify the exe actually generates these specific filenames") 
             logger.info(f"  3. Check if files are in subdirectories with different names")
@@ -1334,7 +1346,19 @@ class DataProcessor:
             
             # Copy processing output files
             logger.info("Copying processing output files...")
-            shutil.copy2(output_files['colorized_las'], temp_package_dir / "colorized.las")
+            
+            # Copy point cloud file (may have different original name)
+            original_pc_file = Path(output_files['colorized_las'])
+            if original_pc_file.suffix.lower() == '.ply':
+                # If original is .ply, keep as .ply for compatibility
+                final_pc_name = "processed_pointcloud.ply"
+            else:
+                # Default to .las
+                final_pc_name = "colorized.las" 
+            
+            shutil.copy2(output_files['colorized_las'], temp_package_dir / final_pc_name)
+            logger.info(f"Copied point cloud file as: {final_pc_name} (from {original_pc_file.name})")
+            
             shutil.copy2(output_files['transforms_json'], temp_package_dir / "transforms.json")
             
             # Copy required files from original package
@@ -1431,8 +1455,8 @@ class DataProcessor:
             bool: True if package verification passes
         """
         try:
-            required_files = {
-                'colorized.las',
+            # Required files - check for alternative point cloud file names
+            required_core_files = {
                 'transforms.json',
                 'metadata.yaml',
                 'Preview.jpg'
@@ -1445,8 +1469,20 @@ class DataProcessor:
             with zipfile.ZipFile(package_path, 'r') as zipf:
                 file_list = set(zipf.namelist())
                 
-                # Check required files
-                missing_files = required_files - file_list
+                # Check for point cloud file (may have different names)
+                point_cloud_found = False
+                point_cloud_candidates = ['colorized.las', 'processed_pointcloud.ply', 'uncolorized.ply']
+                for candidate in point_cloud_candidates:
+                    if candidate in file_list:
+                        point_cloud_found = True
+                        logger.info(f"Found point cloud file: {candidate}")
+                        break
+                
+                if not point_cloud_found:
+                    logger.warning("No point cloud file found in package")
+                
+                # Check other required files
+                missing_files = required_core_files - file_list
                 if missing_files:
                     logger.warning(f"Missing files in package: {missing_files}")
                 
@@ -1456,8 +1492,11 @@ class DataProcessor:
                         logger.warning(f"Missing directory in package: {req_dir}")
                         missing_files.add(req_dir)
                 
-                if missing_files:
-                    logger.warning(f"Package verification failed - missing: {missing_files}")
+                if missing_files or not point_cloud_found:
+                    total_missing = list(missing_files)
+                    if not point_cloud_found:
+                        total_missing.append("point_cloud_file")
+                    logger.warning(f"Package verification failed - missing: {total_missing}")
                     return False
                 else:
                     logger.info("Package verification passed")
