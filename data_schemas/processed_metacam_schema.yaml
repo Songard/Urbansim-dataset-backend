@@ -49,7 +49,7 @@ processing_output_files:
     source: "processing_output"
     min_size: 1048576  # 1MB
     max_size: 5368709120  # 5GB
-    extensions: [".las", ".ply", ".pcd", ".xyz"]  # 支持的点云格式
+    extensions: [".las"]  # 支持的点云格式,debug ".ply", ".pcd", ".xyz"
     required: true
     naming_note: "保持exe输出的原始文件名不变，支持多种点云格式"
     
@@ -58,7 +58,7 @@ processing_output_files:
     file_type: "json"
     source: "processing_output"
     min_size: 100
-    max_size: 1048576  # 1MB
+    max_size: 5242880  # 5MB
     extensions: [".json"]
     required: true
 
@@ -71,6 +71,62 @@ optional_processing_files:
     max_size: 10485760  # 10MB
     extensions: [".txt", ".log"]
     required: false
+
+# COLMAP格式文件（如果启用）
+colmap_format_files:
+  - path: "sparse/0/cameras.txt"
+    description: "COLMAP相机参数文件"
+    file_type: "text"
+    source: "colmap_generation"
+    max_size: 10240  # 10KB
+    extensions: [".txt"]
+    required: false
+    
+  - path: "sparse/0/images.txt"
+    description: "COLMAP训练图像列表"
+    file_type: "text"
+    source: "colmap_generation"
+    max_size: 10485760  # 10MB
+    extensions: [".txt"]
+    required: false
+    
+  - path: "sparse/0/images_val.txt"
+    description: "COLMAP验证图像列表"
+    file_type: "text"
+    source: "colmap_generation"
+    max_size: 10485760  # 10MB
+    extensions: [".txt"]
+    required: false
+    
+  - path: "sparse/0/points3D.txt"
+    description: "COLMAP 3D点云文件"
+    file_type: "text"
+    source: "colmap_generation"
+    max_size: 104857600  # 100MB
+    extensions: [".txt"]
+    required: false
+    
+  - path: "camera_pointcloud_alignment.png"
+    description: "相机-点云对齐可视化图"
+    file_type: "binary"
+    source: "colmap_generation"
+    max_size: 5242880  # 5MB
+    extensions: [".png"]
+    required: false
+
+# COLMAP目录结构
+colmap_directories:
+  - path: "sparse/0"
+    description: "COLMAP sparse reconstruction目录"
+    source: "colmap_generation"
+    preserve_structure: true
+    optional: true
+    
+  - path: "images"
+    description: "COLMAP格式的图像目录"
+    source: "colmap_generation"
+    preserve_structure: true
+    optional: true
 
 # 最终打包要求
 packaging_requirements:

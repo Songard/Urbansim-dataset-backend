@@ -266,6 +266,37 @@ class Config:
     # 场景类型判断阈值（用于自动选择scene参数）
     INDOOR_SCALE_THRESHOLD_M = float(os.getenv('INDOOR_SCALE_THRESHOLD_M', '30'))  # 30米以下认为是narrow场景
     
+    # ========================================
+    # COLMAP 格式生成配置 (COLMAP Format Generation Configuration)
+    # ========================================
+    
+    # 是否启用COLMAP格式生成
+    ENABLE_COLMAP_GENERATION = os.getenv('ENABLE_COLMAP_GENERATION', 'True').lower() == 'true'
+    
+    # 相机轨迹分割配置（用于train/val分割）
+    COLMAP_ORIGIN_DISTANCE_THRESHOLD = float(os.getenv('COLMAP_ORIGIN_DISTANCE_THRESHOLD', '0.30'))  # 距离原点阈值(米)
+    COLMAP_MIN_PAUSE_FRAMES = int(os.getenv('COLMAP_MIN_PAUSE_FRAMES', '3'))  # 最小暂停帧数
+    
+    # 世界坐标系变换矩阵（参考metacam.py示例）
+    COLMAP_GLOBAL_TRANSFORM = [
+        [0, 1, 0, 0],
+        [-1, 0, 0, 0], 
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+    ]
+    
+    COLMAP_GLOBAL_ROTATION = [
+        [1, 0, 0],
+        [0, -1, 0],
+        [0, 0, -1]
+    ]
+    
+    # 点云处理配置
+    COLMAP_POINTCLOUD_DOWNSAMPLE_METHOD = os.getenv('COLMAP_POINTCLOUD_DOWNSAMPLE_METHOD', 'uniform')  # uniform or voxel
+    COLMAP_POINTCLOUD_EVERY_K_POINTS = int(os.getenv('COLMAP_POINTCLOUD_EVERY_K_POINTS', '5'))  # 均匀采样间隔
+    COLMAP_POINTCLOUD_VOXEL_SIZE = float(os.getenv('COLMAP_POINTCLOUD_VOXEL_SIZE', '0.02'))  # 体素下采样大小
+    COLMAP_VISUALIZATION_SAMPLE_POINTS = int(os.getenv('COLMAP_VISUALIZATION_SAMPLE_POINTS', '4000'))  # 可视化采样点数
+    
     # 获取场景特定阈值的辅助方法
     @classmethod
     def get_scene_thresholds(cls, scene_type: str) -> dict:

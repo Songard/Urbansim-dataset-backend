@@ -15,6 +15,7 @@ from typing import Dict, Optional
 
 from config import Config
 from utils.logger import get_logger
+from utils.colmap_utils import generate_colmap_format
 
 logger = get_logger(__name__)
 
@@ -101,6 +102,33 @@ def create_final_package(
             logger.info(f"✓ Copied camera/ directory ({total_files} files) in {duration:.1f}s")
         else:
             logger.warning(f"camera/ directory not found in: {original_path} (searched recursively)")
+        
+        # Generate COLMAP format files if enabled
+        transforms_json_path = temp_package_dir / "transforms.json"
+        if transforms_json_path.exists():
+            logger.info("Generating COLMAP format files (sparse/0/, images/)...")
+            
+            # Find colorized.las file in the package
+            colorized_las_files = list(temp_package_dir.glob("colorized*.las"))
+            colorized_las_path = None
+            if colorized_las_files:
+                colorized_las_path = str(colorized_las_files[0])
+                logger.info(f"Found point cloud file: {Path(colorized_las_path).name}")
+            else:
+                logger.info("No colorized.las file found, will generate COLMAP files without points3D.txt")
+            
+            colmap_success = generate_colmap_format(
+                output_dir=str(temp_package_dir),
+                transforms_json_path=str(transforms_json_path),
+                original_data_path=str(original_path),
+                colorized_las_path=colorized_las_path
+            )
+            if colmap_success:
+                logger.info("✓ COLMAP format generation completed")
+            else:
+                logger.warning("COLMAP format generation failed, continuing without COLMAP files")
+        else:
+            logger.warning("transforms.json not found, skipping COLMAP format generation")
         
         # Create scene-specific subdirectory and file naming
         scene_subdir = "outdoor" if scene_type.lower() == "outdoor" else "indoor"
