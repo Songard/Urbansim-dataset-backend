@@ -282,8 +282,8 @@ class SheetsWriter:
             return
             
         try:
-            # Duration is column P (index 15, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email
-            duration_column = 15
+            # Duration is column Q (index 16, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email, File Collection Status
+            duration_column = 16
             
             # Define colors based on status
             colors = {
@@ -349,8 +349,8 @@ class SheetsWriter:
             return
             
         try:
-            # Size Status is column S (index 18, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email
-            size_status_column = 18
+            # Size Status is column T (index 19, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email, File Collection Status
+            size_status_column = 19
             
             # Define colors based on size status
             colors = {
@@ -416,8 +416,8 @@ class SheetsWriter:
             return
             
         try:
-            # PCD Scale is column T (index 19, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email
-            pcd_scale_column = 19
+            # PCD Scale is column U (index 20, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email, File Collection Status
+            pcd_scale_column = 20
             
             # Define colors based on PCD scale status
             colors = {
@@ -486,8 +486,8 @@ class SheetsWriter:
             return
             
         try:
-            # Transient Detection is column U (index 20, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email
-            transient_column = 20
+            # Transient Detection is column V (index 21, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email, File Collection Status
+            transient_column = 21
             
             # Define colors based on detection decision
             colors = {
@@ -836,6 +836,12 @@ class SheetsWriter:
                 file_collection_status = record.get('file_collection_status', '')
                 if file_collection_status:
                     self._format_file_collection_status_cell(next_row, file_collection_status)
+                else:
+                    # Check if it's in the formatted record directly
+                    if len(formatted_record) > 13:  # Ensure we have the collection status column
+                        collection_status_from_record = formatted_record[13]
+                        if collection_status_from_record and collection_status_from_record not in ['', 'NOT_CHECKED']:
+                            self._format_file_collection_status_cell(next_row, collection_status_from_record)
                 
                 logger.info(f"Successfully wrote record to row {next_row}: {record.get('file_name', 'Unknown')}")
                 return True
@@ -952,6 +958,12 @@ class SheetsWriter:
                         file_collection_status = record.get('file_collection_status', '')
                         if file_collection_status:
                             self._format_file_collection_status_cell(next_row + j, file_collection_status)
+                        else:
+                            # Check if it's in the formatted record directly
+                            if len(formatted_record) > 13:  # Ensure we have the collection status column
+                                collection_status_from_record = formatted_record[13]
+                                if collection_status_from_record and collection_status_from_record not in ['', 'NOT_CHECKED']:
+                                    self._format_file_collection_status_cell(next_row + j, collection_status_from_record)
                     
                     logger.info(f"Successfully wrote batch of {len(batch)} records starting at row {next_row}")
                     

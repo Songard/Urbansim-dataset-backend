@@ -191,7 +191,9 @@ class SheetsDataMapper:
                 
                 if post_processing_step:
                     step_result = post_processing_step.get('result', {})
-                    if step_result.get('success', False):
+                    step_success = step_result.get('success', False)
+                    
+                    if step_success:
                         # Post-processing succeeded, files were collected successfully
                         collection_info['file_collection_status'] = 'PASS'
                     else:
@@ -202,8 +204,17 @@ class SheetsDataMapper:
                         else:
                             collection_info['file_collection_status'] = 'FAILED'
                 else:
-                    # No post-processing step found
-                    collection_info['file_collection_status'] = 'NOT_CHECKED'
+                    # Check if overall processing was successful but no post-processing found
+                    overall_success = processing_pipeline.get('overall_success', False)
+                    if overall_success:
+                        # Processing ran but no post-processing step - might have final package
+                        final_package_path = processing_pipeline.get('final_package_path')
+                        if final_package_path:
+                            collection_info['file_collection_status'] = 'PASS'
+                        else:
+                            collection_info['file_collection_status'] = 'PARTIAL'
+                    else:
+                        collection_info['file_collection_status'] = 'NOT_CHECKED'
             
             # Also check for any package creation results in the metadata
             final_package_info = metadata.get('final_package_info', {})
