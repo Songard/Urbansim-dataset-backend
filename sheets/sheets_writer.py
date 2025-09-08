@@ -629,6 +629,7 @@ class SheetsWriter:
                 'WARNING': {'red': 1.0, 'green': 0.95, 'blue': 0.8},    # Light yellow
                 'FAILED': {'red': 1.0, 'green': 0.85, 'blue': 0.85},    # Light red
                 'ERROR': {'red': 1.0, 'green': 0.85, 'blue': 0.85},     # Light red
+                'NOT_PROCESSED': {'red': 0.9, 'green': 0.9, 'blue': 0.9}, # Light gray
                 'N/A': {'red': 0.9, 'green': 0.9, 'blue': 0.9},         # Light gray
                 'DISABLED': {'red': 0.9, 'green': 0.9, 'blue': 0.9}     # Light gray
             }
@@ -639,7 +640,7 @@ class SheetsWriter:
             else:
                 quality = split_status.strip()
             
-            color = colors.get(quality, colors['FAILED'])
+            color = colors.get(quality, colors['NOT_PROCESSED'])
             
             # Apply formatting
             requests = [{
@@ -894,8 +895,8 @@ class SheetsWriter:
                     self._format_train_val_split_cell(next_row, train_val_split)
                 else:
                     # Check if it's in the formatted record directly
-                    if len(formatted_record) > 22:  # Ensure we have the train_val_split column
-                        split_status_from_record = formatted_record[22]
+                    if len(formatted_record) > 13:  # Ensure we have the train_val_split column (now at index 13)
+                        split_status_from_record = formatted_record[13]
                         if split_status_from_record and split_status_from_record not in ['', 'N/A']:
                             self._format_train_val_split_cell(next_row, split_status_from_record)
                 
@@ -906,7 +907,7 @@ class SheetsWriter:
                 else:
                     # Check if it's in the formatted record directly
                     if len(formatted_record) > 13:  # Ensure we have the collection status column
-                        collection_status_from_record = formatted_record[13]
+                        collection_status_from_record = formatted_record[14]
                         if collection_status_from_record and collection_status_from_record not in ['', 'NOT_CHECKED']:
                             self._format_file_collection_status_cell(next_row, collection_status_from_record)
                 
@@ -1028,7 +1029,7 @@ class SheetsWriter:
                         else:
                             # Check if it's in the formatted record directly
                             if len(formatted_record) > 13:  # Ensure we have the collection status column
-                                collection_status_from_record = formatted_record[13]
+                                collection_status_from_record = formatted_record[14]
                                 if collection_status_from_record and collection_status_from_record not in ['', 'NOT_CHECKED']:
                                     self._format_file_collection_status_cell(next_row + j, collection_status_from_record)
                     
