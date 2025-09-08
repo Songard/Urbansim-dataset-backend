@@ -528,9 +528,15 @@ class GoogleDriveMonitorSystem:
                                             logger.success(f"Final processed package created: {final_package_path}")
                                             logger.info(f"Package size: {package_size_mb:.1f} MB (compressed in {compression_duration:.1f}s)")
                                             processing_results['final_package_path'] = final_package_path
+                                            
+                                            # Store complete package result including COLMAP info for data_mapper
+                                            processing_results['final_package_result'] = package_result
                                         else:
                                             error_msg = package_result.get('error', 'Unknown package creation error')
                                             logger.error(f"Failed to create final package: {error_msg}")
+                                            
+                                            # Store failed package result for data_mapper
+                                            processing_results['final_package_result'] = package_result
                                     else:
                                         logger.warning("Cannot create final package: required output files not found")
                                 except Exception as e:

@@ -250,7 +250,7 @@ class SheetsDataMapper:
             if not metadata:
                 return split_info
             
-            # Check for COLMAP processing results in final package info
+            # Check for COLMAP processing results in final package info (legacy path)
             final_package_info = metadata.get('final_package_info', {})
             if final_package_info:
                 colmap_result = final_package_info.get('colmap_result', {})
@@ -266,9 +266,25 @@ class SheetsDataMapper:
                         split_info['train_val_split'] = f"FAILED ({split_quality})"
                     return split_info
             
-            # Also check processing pipeline for COLMAP results
+            # Check processing pipeline for COLMAP results - new path via final_package_result
             processing_pipeline = metadata.get('processing_pipeline', {})
             if processing_pipeline:
+                # Check for final_package_result containing COLMAP information
+                final_package_result = processing_pipeline.get('final_package_result', {})
+                if final_package_result:
+                    colmap_result = final_package_result.get('colmap_result', {})
+                    if colmap_result:
+                        train_count = colmap_result.get('train_count', 0)
+                        val_count = colmap_result.get('val_count', 0)
+                        split_quality = colmap_result.get('split_quality', 'FAILED')
+                        
+                        if train_count > 0 and val_count > 0:
+                            split_info['train_val_split'] = f"{train_count}|{val_count} ({split_quality})"
+                        else:
+                            split_info['train_val_split'] = f"FAILED ({split_quality})"
+                        return split_info
+                
+                # Legacy check for processing steps (keep for backward compatibility)
                 processing_steps = processing_pipeline.get('processing_steps', [])
                 post_processing_step = None
                 

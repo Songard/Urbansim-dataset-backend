@@ -58,8 +58,8 @@ class SheetsWriter:
         #
         self.headers = [
             'Entry ID', 'Validation Status', 'Validation Score', 'File ID', 'File Name', 'Upload Time', 'Device ID', 'Owner Name', 'Uploader Email', 'File Size', 'File Type',
-            'Extract Status', 'File Count', 'File Collection Status', 'Process Time', 'Start Time', 'Duration', 'Location', 'Scene Type', 'Size Status', 
-            'PCD Scale', 'Transient Detection', 'Train/Val Split', 'Weighted Detection Density', 'Weighted Person Occupancy', 'Scene Activity Index', 'Error Message', 'Warning Message', 'Notes'
+            'Extract Status', 'File Count', 'Train/Val Split', 'File Collection Status', 'Process Time', 'Start Time', 'Duration', 'Location', 'Scene Type', 'Size Status', 
+            'PCD Scale', 'Transient Detection', 'Weighted Detection Density', 'Weighted Person Occupancy', 'Scene Activity Index', 'Error Message', 'Warning Message', 'Notes'
         ]
         
         # Field mapping to headers - reorganized for better readability
@@ -67,8 +67,8 @@ class SheetsWriter:
         self.field_mapping = {
             'entry_id': 0, 'validation_status': 1, 'validation_score': 2, 'file_id': 3, 'file_name': 4, 
             'upload_time': 5, 'device_id': 6, 'owner_name': 7, 'uploader_email': 8, 'file_size': 9, 'file_type': 10, 'extract_status': 11, 'file_count': 12, 
-            'file_collection_status': 13, 'process_time': 14, 'start_time': 15, 'duration': 16, 'location': 17, 'scene_type': 18, 
-            'size_status': 19, 'pcd_scale': 20, 'transient_decision': 21, 'train_val_split': 22, 'wdd': 23, 'wpo': 24, 
+            'train_val_split': 13, 'file_collection_status': 14, 'process_time': 15, 'start_time': 16, 'duration': 17, 'location': 18, 'scene_type': 19, 
+            'size_status': 20, 'pcd_scale': 21, 'transient_decision': 22, 'wdd': 23, 'wpo': 24, 
             'sai': 25, 'error_message': 26, 'warning_message': 27, 'notes': 28
         }
         self._initialize_service()
@@ -282,8 +282,8 @@ class SheetsWriter:
             return
             
         try:
-            # Duration is column Q (index 16, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email, File Collection Status
-            duration_column = 16
+            # Duration is column R (index 17, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email, Train/Val Split, File Collection Status
+            duration_column = 17
             
             # Define colors based on status
             colors = {
@@ -349,8 +349,8 @@ class SheetsWriter:
             return
             
         try:
-            # Size Status is column T (index 19, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email, File Collection Status
-            size_status_column = 19
+            # Size Status is column U (index 20, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email, Train/Val Split, File Collection Status
+            size_status_column = 20
             
             # Define colors based on size status
             colors = {
@@ -416,8 +416,8 @@ class SheetsWriter:
             return
             
         try:
-            # PCD Scale is column U (index 20, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email, File Collection Status
-            pcd_scale_column = 20
+            # PCD Scale is column V (index 21, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email, Train/Val Split, File Collection Status
+            pcd_scale_column = 21
             
             # Define colors based on PCD scale status
             colors = {
@@ -486,8 +486,8 @@ class SheetsWriter:
             return
             
         try:
-            # Transient Detection is column V (index 21, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email, File Collection Status
-            transient_column = 21
+            # Transient Detection is column W (index 22, 0-based) - shifted due to Entry ID, Validation Status, Device ID, Owner Name, Owner Email, Train/Val Split, File Collection Status
+            transient_column = 22
             
             # Define colors based on detection decision
             colors = {
@@ -619,8 +619,8 @@ class SheetsWriter:
             return
             
         try:
-            # Train/Val Split is column W (index 22, 0-based)
-            split_column = 22
+            # Train/Val Split is column N (index 13, 0-based) - positioned between File Count and File Collection Status
+            split_column = 13
             
             # Define colors based on split quality
             colors = {
@@ -675,8 +675,8 @@ class SheetsWriter:
             return
             
         try:
-            # File Collection Status is column N (index 13, 0-based)
-            collection_status_column = 13
+            # File Collection Status is now column O (index 14, 0-based) after Train/Val Split insertion
+            collection_status_column = 14
             
             # Define colors based on collection status
             colors = {
