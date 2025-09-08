@@ -185,25 +185,17 @@ def write_images_txt(
                 src_name = frame['file_path'].replace('\\', '/')
                 dst_name = src_name.replace('/', '_')
                 
-                # Try multiple source locations
-                source_paths = [
-                    os.path.join(src_dir, 'camera', src_name),
-                    os.path.join(src_dir, 'images', src_name),
-                ]
+                # Use correct camera path as per schema
+                # src_name format is like "left/1757025812332602000.jpg" or "right/1757025977217852000.jpg"
+                src_path = os.path.join(src_dir, 'camera', src_name)
                 
-                copied = False
-                for src_path in source_paths:
-                    if os.path.exists(src_path):
-                        try:
-                            shutil.copy(src_path, os.path.join(images_dir, dst_name))
-                            copied = True
-                            break
-                        except Exception as e:
-                            logger.warning(f"Failed to copy {src_path}: {e}")
-                            continue
-                
-                if not copied:
-                    logger.error(f"Could not find or copy image: {src_name}")
+                try:
+                    shutil.copy(src_path, os.path.join(images_dir, dst_name))
+                except FileNotFoundError:
+                    logger.error(f"Image file not found: {src_path}")
+                    return False
+                except Exception as e:
+                    logger.error(f"Failed to copy image {src_path}: {e}")
                     return False
 
                 # Determine camera ID (1=left, 2=right)
