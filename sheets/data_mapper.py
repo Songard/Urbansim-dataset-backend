@@ -50,6 +50,10 @@ class SheetsDataMapper:
         'wpo': str,
         'sai': str,
         
+        # Processing and upload fields  
+        'train_val_split': str,
+        'hf_upload_status': str,
+        
         # Other fields
         'error_message': str,
         'warning_message': str,
@@ -96,6 +100,9 @@ class SheetsDataMapper:
         
         # Extract owner information
         sheets_record.update(cls._extract_owner_info(base_record))
+        
+        # Extract Hugging Face upload status
+        sheets_record.update(cls._extract_hf_upload_status(validation_result))
         
         # Standardize error messages
         sheets_record.update(cls._standardize_error_messages(validation_result, sheets_record))
@@ -415,6 +422,46 @@ class SheetsDataMapper:
         return owner_info
     
     @classmethod
+    def _extract_hf_upload_status(cls, validation_result: Union[ValidationResult, Dict]) -> Dict[str, Any]:
+        """Extract Hugging Face upload status information from processing results"""
+        hf_info = {
+            'hf_upload_status': 'NOT_PROCESSED'
+        }
+        
+        try:
+            # Check for processing pipeline containing HF upload result
+            if isinstance(validation_result, dict):
+                processing_pipeline = validation_result.get('processing_pipeline', {})
+            else:
+                processing_pipeline = getattr(validation_result, 'processing_pipeline', {}) if validation_result else {}
+            
+            if processing_pipeline:
+                # Check for HF upload result in processing pipeline
+                hf_upload_result = processing_pipeline.get('hf_upload_result', {})
+                
+                if hf_upload_result:
+                    if hf_upload_result.get('success'):
+                        hf_info['hf_upload_status'] = 'UPLOADED'
+                    elif hf_upload_result.get('skipped'):
+                        reason = hf_upload_result.get('reason', '')
+                        if 'disabled' in reason.lower():
+                            hf_info['hf_upload_status'] = 'DISABLED'
+                        else:
+                            hf_info['hf_upload_status'] = 'SKIPPED'
+                    else:
+                        error = hf_upload_result.get('error', '')
+                        hf_info['hf_upload_status'] = f"FAILED: {error[:50]}..." if len(error) > 50 else f"FAILED: {error}"
+                else:
+                    # If there's processing pipeline but no HF result, it might be processing without upload
+                    hf_info['hf_upload_status'] = 'NOT_PROCESSED'
+        
+        except Exception as e:
+            print(f"Warning: Failed to extract HF upload status: {e}")
+            hf_info['hf_upload_status'] = 'ERROR'
+        
+        return hf_info
+    
+    @classmethod
     def _format_duration(cls, duration_value: Union[str, float, int]) -> str:
         """Convert duration from decimal seconds to MM:SS format"""
         try:
@@ -589,6 +636,7 @@ class SheetsDataMapper:
             'pcd_scale': 'unknown',
             'file_collection_status': 'NOT_CHECKED',
             'train_val_split': 'NOT_PROCESSED',
+            'hf_upload_status': 'NOT_PROCESSED',
             'transient_decision': 'N/A',
             'wdd': 'N/A',
             'wpo': 'N/A',

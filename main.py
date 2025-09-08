@@ -27,6 +27,7 @@ from sheets.sheets_writer import SheetsWriter
 from validation.manager import ValidationManager
 from processors.data_processor import DataProcessor
 from utils.error_formatter import ErrorFormatter
+from utils.huggingface_uploader import upload_processed_package
 
 logger = get_logger(__name__)
 
@@ -531,6 +532,22 @@ class GoogleDriveMonitorSystem:
                                             
                                             # Store complete package result including COLMAP info for data_mapper
                                             processing_results['final_package_result'] = package_result
+                                            
+                                            # Upload to Hugging Face if enabled
+                                            hf_upload_result = self._upload_to_huggingface(
+                                                package_path=final_package_path,
+                                                file_id=file_id,
+                                                scene_type=scene_type,
+                                                validation_score=validation_score if isinstance(validation_score, (int, float)) else None,
+                                                processing_success=True,
+                                                metadata={
+                                                    'file_name': file_name,
+                                                    'upload_time': file_info.get('createdTime', ''),
+                                                    'compression_duration': compression_duration,
+                                                    'colmap_result': package_result.get('colmap_result', {})
+                                                }
+                                            )
+                                            processing_results['hf_upload_result'] = hf_upload_result
                                         else:
                                             error_msg = package_result.get('error', 'Unknown package creation error')
                                             logger.error(f"Failed to create final package: {error_msg}")
@@ -638,6 +655,56 @@ class GoogleDriveMonitorSystem:
         finally:
             # 清理临时文件
             self.archive_handler.cleanup_temp_dirs()
+    
+    def _upload_to_huggingface(self, package_path: str, file_id: str, scene_type: str, 
+                               validation_score: float = None, processing_success: bool = True,
+                               metadata: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Upload processed package to Hugging Face repository
+        
+        Args:
+            package_path: Path to the processed package file
+            file_id: Google Drive file ID
+            scene_type: Scene type (indoor/outdoor)
+            validation_score: Validation score for quality filtering
+            processing_success: Whether processing was successful
+            metadata: Additional metadata for upload tracking
+            
+        Returns:
+            Dict containing upload result information
+        """
+        try:
+            logger.info(f"Initiating Hugging Face upload for file: {file_id}")
+            
+            upload_result = upload_processed_package(
+                package_path=package_path,
+                file_id=file_id,
+                scene_type=scene_type,
+                validation_score=validation_score,
+                processing_success=processing_success,
+                metadata=metadata
+            )
+            
+            if upload_result.get('success'):
+                upload_path = upload_result.get('upload_path', 'unknown')
+                upload_duration = upload_result.get('upload_duration', 0)
+                logger.success(f"✓ Upload completed: {upload_path} (took {upload_duration:.1f}s)")
+            elif upload_result.get('skipped'):
+                reason = upload_result.get('reason', 'Unknown reason')
+                logger.info(f"Upload skipped: {reason}")
+            else:
+                error = upload_result.get('error', 'Unknown upload error')
+                logger.warning(f"Upload failed: {error}")
+            
+            return upload_result
+            
+        except Exception as e:
+            error_msg = f"Hugging Face upload error: {e}"
+            logger.error(error_msg)
+            return {
+                'success': False,
+                'error': error_msg
+            }
     
     def _record_failed_processing(self, file_info: Dict, error_msg: str, start_time: datetime):
         """记录处理失败的文件"""

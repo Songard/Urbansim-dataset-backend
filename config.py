@@ -301,6 +301,32 @@ class Config:
     COLMAP_POINTCLOUD_VOXEL_SIZE = float(os.getenv('COLMAP_POINTCLOUD_VOXEL_SIZE', '0.02'))  # 体素下采样大小
     COLMAP_VISUALIZATION_SAMPLE_POINTS = int(os.getenv('COLMAP_VISUALIZATION_SAMPLE_POINTS', '4000'))  # 可视化采样点数
     
+    # ========================================
+    # Hugging Face 上传配置 (Hugging Face Upload Configuration)  
+    # ========================================
+    
+    # 是否启用 Hugging Face 上传
+    ENABLE_HF_UPLOAD = os.getenv('ENABLE_HF_UPLOAD', 'True').lower() == 'true'
+    
+    # Hugging Face 认证配置
+    HF_TOKEN = os.getenv('HF_TOKEN', '')  # Hugging Face Access Token
+    HF_USERNAME = os.getenv('HF_USERNAME', 'Songard')  # Hugging Face 用户名
+    HF_REPO_ID = os.getenv('HF_REPO_ID', 'ai4ce/UrbanSim_raw')  # Repository ID
+    
+    # 上传配置
+    HF_UPLOAD_TIMEOUT = int(os.getenv('HF_UPLOAD_TIMEOUT', '3600'))  # 上传超时时间(秒) - 1小时
+    HF_UPLOAD_RETRIES = int(os.getenv('HF_UPLOAD_RETRIES', '3'))  # 上传重试次数
+    HF_CHUNK_SIZE_MB = int(os.getenv('HF_CHUNK_SIZE_MB', '64'))  # 分块上传大小(MB)
+    
+    # 文件组织配置
+    HF_ORGANIZE_BY_SCENE = os.getenv('HF_ORGANIZE_BY_SCENE', 'True').lower() == 'true'  # 是否按场景类型组织目录
+    HF_USE_FILE_ID_NAMING = os.getenv('HF_USE_FILE_ID_NAMING', 'True').lower() == 'true'  # 是否使用文件ID命名
+    
+    # 上传条件配置
+    HF_UPLOAD_ALL_RESULTS = os.getenv('HF_UPLOAD_ALL_RESULTS', 'True').lower() == 'true'  # 是否上传所有结果
+    HF_MIN_VALIDATION_SCORE = float(os.getenv('HF_MIN_VALIDATION_SCORE', '60.0'))  # 最小验证分数要求
+    HF_EXCLUDE_FAILED_PROCESSING = os.getenv('HF_EXCLUDE_FAILED_PROCESSING', 'False').lower() == 'true'  # 是否排除处理失败的文件
+    
     # 获取场景特定阈值的辅助方法
     @classmethod
     def get_scene_thresholds(cls, scene_type: str) -> dict:

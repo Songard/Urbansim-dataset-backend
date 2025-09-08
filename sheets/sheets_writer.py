@@ -59,7 +59,7 @@ class SheetsWriter:
         self.headers = [
             'Entry ID', 'Validation Status', 'Validation Score', 'File ID', 'File Name', 'Upload Time', 'Device ID', 'Owner Name', 'Uploader Email', 'File Size', 'File Type',
             'Extract Status', 'File Count', 'Train/Val Split', 'File Collection Status', 'Process Time', 'Start Time', 'Duration', 'Location', 'Scene Type', 'Size Status', 
-            'PCD Scale', 'Transient Detection', 'Weighted Detection Density', 'Weighted Person Occupancy', 'Scene Activity Index', 'Error Message', 'Warning Message', 'Notes'
+            'PCD Scale', 'Transient Detection', 'Weighted Detection Density', 'Weighted Person Occupancy', 'Scene Activity Index', 'Error Message', 'Warning Message', 'HF Upload Status', 'Notes'
         ]
         
         # Field mapping to headers - reorganized for better readability
@@ -69,7 +69,7 @@ class SheetsWriter:
             'upload_time': 5, 'device_id': 6, 'owner_name': 7, 'uploader_email': 8, 'file_size': 9, 'file_type': 10, 'extract_status': 11, 'file_count': 12, 
             'train_val_split': 13, 'file_collection_status': 14, 'process_time': 15, 'start_time': 16, 'duration': 17, 'location': 18, 'scene_type': 19, 
             'size_status': 20, 'pcd_scale': 21, 'transient_decision': 22, 'wdd': 23, 'wpo': 24, 
-            'sai': 25, 'error_message': 26, 'warning_message': 27, 'notes': 28
+            'sai': 25, 'error_message': 26, 'warning_message': 27, 'hf_upload_status': 28, 'notes': 29
         }
         self._initialize_service()
     
@@ -735,6 +735,82 @@ class SheetsWriter:
             
         except Exception as e:
             logger.warning(f"Failed to format file collection status cell for row {row_number}: {e}")
+    
+    def _format_hf_upload_status_cell(self, row_number: int, upload_status: str):
+        """Apply color formatting to Hugging Face Upload Status cell"""
+        if not upload_status:
+            return
+            
+        try:
+            # HF Upload Status is column AC (index 28, 0-based) - positioned before Notes
+            hf_upload_column = 28
+            
+            # Define colors based on upload status
+            colors = {
+                'SUCCESS': {'red': 0.85, 'green': 0.95, 'blue': 0.85},      # Light green
+                'UPLOADED': {'red': 0.85, 'green': 0.95, 'blue': 0.85},     # Light green  
+                'SKIPPED': {'red': 1.0, 'green': 0.95, 'blue': 0.8},        # Light yellow
+                'DISABLED': {'red': 0.9, 'green': 0.9, 'blue': 0.9},        # Light gray
+                'FAILED': {'red': 1.0, 'green': 0.85, 'blue': 0.85},        # Light red
+                'ERROR': {'red': 1.0, 'green': 0.85, 'blue': 0.85},         # Light red
+                'NOT_PROCESSED': {'red': 0.9, 'green': 0.9, 'blue': 0.9},   # Light gray
+            }
+            
+            # Extract status from upload status text
+            status_key = upload_status.upper()
+            if 'SUCCESS' in status_key or 'UPLOADED' in status_key:
+                background_color = colors.get('SUCCESS', colors['NOT_PROCESSED'])
+            elif 'SKIPPED' in status_key:
+                background_color = colors.get('SKIPPED', colors['NOT_PROCESSED'])
+            elif 'DISABLED' in status_key:
+                background_color = colors.get('DISABLED', colors['NOT_PROCESSED'])
+            elif 'FAILED' in status_key or 'ERROR' in status_key:
+                background_color = colors.get('FAILED', colors['NOT_PROCESSED'])
+            else:
+                background_color = colors.get('NOT_PROCESSED', colors['NOT_PROCESSED'])
+            
+            # Get sheet ID
+            sheet_metadata = self.service.spreadsheets().get(spreadsheetId=self.spreadsheet_id).execute()
+            sheet_id = None
+            for sheet in sheet_metadata.get('sheets', []):
+                if sheet['properties']['title'] == self.sheet_name:
+                    sheet_id = sheet['properties']['sheetId']
+                    break
+            
+            if sheet_id is None:
+                logger.warning(f"Could not find sheet ID for '{self.sheet_name}'")
+                return
+            
+            requests = [
+                {
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': row_number - 1,  # 0-based
+                            'endRowIndex': row_number,
+                            'startColumnIndex': hf_upload_column,
+                            'endColumnIndex': hf_upload_column + 1
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'backgroundColor': background_color
+                            }
+                        },
+                        'fields': 'userEnteredFormat.backgroundColor'
+                    }
+                }
+            ]
+            
+            body = {'requests': requests}
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body=body
+            ).execute()
+            
+            logger.debug(f"Applied {upload_status} formatting to row {row_number}, column {hf_upload_column}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to format HF upload status cell for row {row_number}: {e}")
             
     def _get_next_empty_row(self) -> int:
         try:
@@ -911,6 +987,17 @@ class SheetsWriter:
                         if collection_status_from_record and collection_status_from_record not in ['', 'NOT_CHECKED']:
                             self._format_file_collection_status_cell(next_row, collection_status_from_record)
                 
+                # Hugging Face upload status formatting
+                hf_upload_status = record.get('hf_upload_status', '')
+                if hf_upload_status:
+                    self._format_hf_upload_status_cell(next_row, hf_upload_status)
+                else:
+                    # Check if it's in the formatted record directly
+                    if len(formatted_record) > 28:  # Ensure we have the HF upload status column (index 28)
+                        hf_status_from_record = formatted_record[28]
+                        if hf_status_from_record and hf_status_from_record not in ['', 'NOT_PROCESSED']:
+                            self._format_hf_upload_status_cell(next_row, hf_status_from_record)
+                
                 logger.info(f"Successfully wrote record to row {next_row}: {record.get('file_name', 'Unknown')}")
                 return True
                 
@@ -1032,6 +1119,17 @@ class SheetsWriter:
                                 collection_status_from_record = formatted_record[14]
                                 if collection_status_from_record and collection_status_from_record not in ['', 'NOT_CHECKED']:
                                     self._format_file_collection_status_cell(next_row + j, collection_status_from_record)
+                        
+                        # Hugging Face upload status formatting
+                        hf_upload_status = record.get('hf_upload_status', '')
+                        if hf_upload_status:
+                            self._format_hf_upload_status_cell(next_row + j, hf_upload_status)
+                        else:
+                            # Check if it's in the formatted record directly
+                            if len(formatted_record) > 28:  # Ensure we have the HF upload status column (index 28)
+                                hf_status_from_record = formatted_record[28]
+                                if hf_status_from_record and hf_status_from_record not in ['', 'NOT_PROCESSED']:
+                                    self._format_hf_upload_status_cell(next_row + j, hf_status_from_record)
                     
                     logger.info(f"Successfully wrote batch of {len(batch)} records starting at row {next_row}")
                     

@@ -19,3 +19,4 @@ scipy
 laspy
 open3d
 plyfile
+huggingface_hub
