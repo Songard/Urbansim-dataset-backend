@@ -147,17 +147,23 @@ def split_frames_by_origin(
                 train_frames = camA[:split_start] + camB[:split_start_B]
                 val_frames = camA[split_end + 1:] + camB[split_end_B + 1:]
                 
-                split_info.update({
-                    "status": "WARNING", 
-                    "split_quality": "WARNING",
-                    "train_count": len(train_frames),
-                    "val_count": len(val_frames),
-                    "distance_used": Config.COLMAP_SPLIT_DISTANCE_WARNING,
-                    "pause_frames": best_len_warn
-                })
-                
-                logger.warning(f"Split with WARNING quality: train={len(train_frames)}, val={len(val_frames)}, pause={best_len_warn}")
-                return train_frames, val_frames, split_info
+                # Check if either train or validation set is empty - mark as failed even with warning threshold
+                if len(train_frames) == 0 or len(val_frames) == 0:
+                    logger.error(f"WARNING threshold split FAILED: Empty set detected - train={len(train_frames)}, val={len(val_frames)}")
+                    
+                    # Fall through to failed section below
+                else:
+                    split_info.update({
+                        "status": "WARNING", 
+                        "split_quality": "WARNING",
+                        "train_count": len(train_frames),
+                        "val_count": len(val_frames),
+                        "distance_used": Config.COLMAP_SPLIT_DISTANCE_WARNING,
+                        "pause_frames": best_len_warn
+                    })
+                    
+                    logger.warning(f"Split with WARNING quality: train={len(train_frames)}, val={len(val_frames)}, pause={best_len_warn}")
+                    return train_frames, val_frames, split_info
         
         # Both thresholds failed - use fallback split
         logger.error(f"Split FAILED: No adequate near-origin segment detected (best: {best_len}, required: {min_run})")
@@ -189,6 +195,26 @@ def split_frames_by_origin(
     # Create train/validation splits
     train_frames = camA[:split_start] + camB[:split_start_B]
     val_frames = camA[split_end + 1:] + camB[split_end_B + 1:]
+
+    # Check if either train or validation set is empty - mark as failed
+    if len(train_frames) == 0 or len(val_frames) == 0:
+        logger.error(f"Split FAILED: Empty set detected - train={len(train_frames)}, val={len(val_frames)}")
+        
+        # Return fallback 80-20 split but mark as failed
+        split_idx = int(0.8 * len(frames))
+        train_frames = frames[:split_idx]
+        val_frames = frames[split_idx:]
+        
+        split_info.update({
+            "status": "FAILED",
+            "split_quality": "FAILED", 
+            "train_count": len(train_frames),
+            "val_count": len(val_frames),
+            "distance_used": dist_thresh,
+            "pause_frames": best_len
+        })
+        
+        return train_frames, val_frames, split_info
 
     # Determine split quality
     if dist_thresh <= Config.COLMAP_SPLIT_DISTANCE_GOOD:
