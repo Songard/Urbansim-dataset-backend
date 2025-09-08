@@ -273,9 +273,13 @@ class Config:
     # 是否启用COLMAP格式生成
     ENABLE_COLMAP_GENERATION = os.getenv('ENABLE_COLMAP_GENERATION', 'True').lower() == 'true'
     
-    # 相机轨迹分割配置（用于train/val分割）
-    COLMAP_ORIGIN_DISTANCE_THRESHOLD = float(os.getenv('COLMAP_ORIGIN_DISTANCE_THRESHOLD', '0.50'))  # 距离原点阈值(米)，放宽检测范围
-    COLMAP_MIN_PAUSE_FRAMES = int(os.getenv('COLMAP_MIN_PAUSE_FRAMES', '2'))  # 最小暂停帧数（降低要求）
+    # 相机轨迹分割配置（用于train/val分割）- 多级阈值
+    COLMAP_SPLIT_DISTANCE_GOOD = float(os.getenv('COLMAP_SPLIT_DISTANCE_GOOD', '0.5'))  # 良好分割阈值(米) - 绿色
+    COLMAP_SPLIT_DISTANCE_WARNING = float(os.getenv('COLMAP_SPLIT_DISTANCE_WARNING', '1.0'))  # 警告分割阈值(米) - 黄色  
+    COLMAP_MIN_PAUSE_FRAMES = int(os.getenv('COLMAP_MIN_PAUSE_FRAMES', '2'))  # 最小暂停帧数
+    
+    # 向后兼容
+    COLMAP_ORIGIN_DISTANCE_THRESHOLD = COLMAP_SPLIT_DISTANCE_GOOD
     
     # 世界坐标系变换矩阵（参考metacam.py示例）
     COLMAP_GLOBAL_TRANSFORM = [

@@ -59,7 +59,7 @@ class SheetsWriter:
         self.headers = [
             'Entry ID', 'Validation Status', 'Validation Score', 'File ID', 'File Name', 'Upload Time', 'Device ID', 'Owner Name', 'Uploader Email', 'File Size', 'File Type',
             'Extract Status', 'File Count', 'File Collection Status', 'Process Time', 'Start Time', 'Duration', 'Location', 'Scene Type', 'Size Status', 
-            'PCD Scale', 'Transient Detection', 'Weighted Detection Density', 'Weighted Person Occupancy', 'Scene Activity Index', 'Error Message', 'Warning Message', 'Notes'
+            'PCD Scale', 'Transient Detection', 'Train/Val Split', 'Weighted Detection Density', 'Weighted Person Occupancy', 'Scene Activity Index', 'Error Message', 'Warning Message', 'Notes'
         ]
         
         # Field mapping to headers - reorganized for better readability
@@ -68,8 +68,8 @@ class SheetsWriter:
             'entry_id': 0, 'validation_status': 1, 'validation_score': 2, 'file_id': 3, 'file_name': 4, 
             'upload_time': 5, 'device_id': 6, 'owner_name': 7, 'uploader_email': 8, 'file_size': 9, 'file_type': 10, 'extract_status': 11, 'file_count': 12, 
             'file_collection_status': 13, 'process_time': 14, 'start_time': 15, 'duration': 16, 'location': 17, 'scene_type': 18, 
-            'size_status': 19, 'pcd_scale': 20, 'transient_decision': 21, 'wdd': 22, 'wpo': 23, 
-            'sai': 24, 'error_message': 25, 'warning_message': 26, 'notes': 27
+            'size_status': 19, 'pcd_scale': 20, 'transient_decision': 21, 'train_val_split': 22, 'wdd': 23, 'wpo': 24, 
+            'sai': 25, 'error_message': 26, 'warning_message': 27, 'notes': 28
         }
         self._initialize_service()
     
@@ -136,7 +136,7 @@ class SheetsWriter:
             if not self._verify_and_get_sheet_name():
                 return False
             
-            range_name = f"'{self.sheet_name}'!A1:AB1"
+            range_name = f"'{self.sheet_name}'!A1:AC1"
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.spreadsheet_id,
                 range=range_name
@@ -204,7 +204,7 @@ class SheetsWriter:
                 logger.info(f"Using first sheet: '{self.sheet_name}'")
                 
                 # Try again with proper sheet name
-                range_name = f"'{self.sheet_name}'!A1:AB1"
+                range_name = f"'{self.sheet_name}'!A1:AC1"
                 result = self.service.spreadsheets().values().get(
                     spreadsheetId=self.spreadsheet_id,
                     range=range_name
@@ -225,7 +225,7 @@ class SheetsWriter:
             
     def _create_headers(self):
         try:
-            range_name = f"'{self.sheet_name}'!A1:AB1"
+            range_name = f"'{self.sheet_name}'!A1:AC1"
             body = {
                 'values': [self.headers]
             }
@@ -613,6 +613,62 @@ class SheetsWriter:
         except Exception as e:
             logger.warning(f"Failed to format validation status cell for row {row_number}: {e}")
     
+    def _format_train_val_split_cell(self, row_number: int, split_status: str):
+        """Apply color formatting to Train/Val Split cell based on split quality"""
+        if not split_status:
+            return
+            
+        try:
+            # Train/Val Split is column W (index 22, 0-based)
+            split_column = 22
+            
+            # Define colors based on split quality
+            colors = {
+                'GOOD': {'red': 0.85, 'green': 0.95, 'blue': 0.85},      # Light green
+                'SUCCESS': {'red': 0.85, 'green': 0.95, 'blue': 0.85},  # Light green
+                'WARNING': {'red': 1.0, 'green': 0.95, 'blue': 0.8},    # Light yellow
+                'FAILED': {'red': 1.0, 'green': 0.85, 'blue': 0.85},    # Light red
+                'ERROR': {'red': 1.0, 'green': 0.85, 'blue': 0.85},     # Light red
+                'N/A': {'red': 0.9, 'green': 0.9, 'blue': 0.9},         # Light gray
+                'DISABLED': {'red': 0.9, 'green': 0.9, 'blue': 0.9}     # Light gray
+            }
+            
+            # Extract quality from format like "977|128 (GOOD)" or "FAILED"
+            if '(' in split_status and ')' in split_status:
+                quality = split_status.split('(')[1].split(')')[0].strip()
+            else:
+                quality = split_status.strip()
+            
+            color = colors.get(quality, colors['FAILED'])
+            
+            # Apply formatting
+            requests = [{
+                'repeatCell': {
+                    'range': {
+                        'sheetId': 0,
+                        'startRowIndex': row_number - 1,
+                        'endRowIndex': row_number,
+                        'startColumnIndex': split_column,
+                        'endColumnIndex': split_column + 1
+                    },
+                    'cell': {
+                        'userEnteredFormat': {
+                            'backgroundColor': color
+                        }
+                    },
+                    'fields': 'userEnteredFormat.backgroundColor'
+                }
+            }]
+            
+            body = {'requests': requests}
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=Config.SPREADSHEET_ID,
+                body=body
+            ).execute()
+            
+        except Exception as e:
+            logger.error(f"Failed to format train/val split cell: {e}")
+
     def _format_file_collection_status_cell(self, row_number: int, collection_status: str):
         """Apply color formatting to File Collection Status cell based on status"""
         if not collection_status:
@@ -831,6 +887,17 @@ class SheetsWriter:
                 
                 if transient_decision:
                     self._format_transient_detection_cell(next_row, transient_decision)
+                
+                # Train/Val Split formatting
+                train_val_split = record.get('train_val_split', '')
+                if train_val_split:
+                    self._format_train_val_split_cell(next_row, train_val_split)
+                else:
+                    # Check if it's in the formatted record directly
+                    if len(formatted_record) > 22:  # Ensure we have the train_val_split column
+                        split_status_from_record = formatted_record[22]
+                        if split_status_from_record and split_status_from_record not in ['', 'N/A']:
+                            self._format_train_val_split_cell(next_row, split_status_from_record)
                 
                 # File collection status formatting
                 file_collection_status = record.get('file_collection_status', '')

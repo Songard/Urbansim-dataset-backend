@@ -87,6 +87,9 @@ class SheetsDataMapper:
         # Extract file collection information
         sheets_record.update(cls._extract_file_collection_info(validation_result))
         
+        # Extract train/val split information
+        sheets_record.update(cls._extract_train_val_split_info(validation_result))
+        
         # Extract metadata information
         metadata_info = cls._extract_metadata_info(validation_result)
         sheets_record.update(metadata_info)
@@ -229,6 +232,69 @@ class SheetsDataMapper:
             print(f"Warning: Failed to extract file collection info: {e}")
         
         return collection_info
+    
+    @classmethod
+    def _extract_train_val_split_info(cls, validation_result: Union[ValidationResult, Dict]) -> Dict[str, Any]:
+        """Extract train/validation split information from COLMAP processing results"""
+        split_info = {
+            'train_val_split': 'NOT_PROCESSED'
+        }
+        
+        try:
+            # Get metadata to check for processing results
+            if isinstance(validation_result, dict):
+                metadata = validation_result.get('metadata', {})
+            else:
+                metadata = getattr(validation_result, 'metadata', {})
+            
+            if not metadata:
+                return split_info
+            
+            # Check for COLMAP processing results in final package info
+            final_package_info = metadata.get('final_package_info', {})
+            if final_package_info:
+                colmap_result = final_package_info.get('colmap_result', {})
+                if colmap_result:
+                    train_count = colmap_result.get('train_count', 0)
+                    val_count = colmap_result.get('val_count', 0)
+                    split_quality = colmap_result.get('split_quality', 'FAILED')
+                    
+                    if train_count > 0 and val_count > 0:
+                        # Format as "train_count|val_count (quality)"
+                        split_info['train_val_split'] = f"{train_count}|{val_count} ({split_quality})"
+                    else:
+                        split_info['train_val_split'] = f"FAILED ({split_quality})"
+                    return split_info
+            
+            # Also check processing pipeline for COLMAP results
+            processing_pipeline = metadata.get('processing_pipeline', {})
+            if processing_pipeline:
+                processing_steps = processing_pipeline.get('processing_steps', [])
+                post_processing_step = None
+                
+                for step in processing_steps:
+                    if step.get('step') == 'post_processing':
+                        post_processing_step = step
+                        break
+                
+                if post_processing_step:
+                    step_result = post_processing_step.get('result', {})
+                    colmap_info = step_result.get('colmap_info', {})
+                    
+                    if colmap_info:
+                        train_count = colmap_info.get('train_count', 0)
+                        val_count = colmap_info.get('val_count', 0)
+                        split_quality = colmap_info.get('split_quality', 'FAILED')
+                        
+                        if train_count > 0 and val_count > 0:
+                            split_info['train_val_split'] = f"{train_count}|{val_count} ({split_quality})"
+                        else:
+                            split_info['train_val_split'] = f"FAILED ({split_quality})"
+        
+        except Exception as e:
+            print(f"Warning: Failed to extract train/val split info: {e}")
+        
+        return split_info
     
     @classmethod
     def _extract_metadata_info(cls, validation_result: Union[ValidationResult, Dict]) -> Dict[str, Any]:
@@ -506,6 +572,7 @@ class SheetsDataMapper:
             'size_status': 'unknown',
             'pcd_scale': 'unknown',
             'file_collection_status': 'NOT_CHECKED',
+            'train_val_split': 'NOT_PROCESSED',
             'transient_decision': 'N/A',
             'wdd': 'N/A',
             'wpo': 'N/A',

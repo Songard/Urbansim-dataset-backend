@@ -61,7 +61,7 @@ def split_frames_by_origin(
     global_rot: np.ndarray,
     dist_thresh: float = 0.30,
     min_run: int = 3,
-) -> Tuple[List[Dict], List[Dict]]:
+) -> Tuple[List[Dict], List[Dict], Dict]:
     """
     Split camera frames into train/validation sets based on proximity to origin.
     
@@ -76,7 +76,7 @@ def split_frames_by_origin(
         min_run: Minimum consecutive frames required for a valid pause period
         
     Returns:
-        Tuple of (train_frames, validation_frames)
+        Tuple of (train_frames, validation_frames, split_info)
     """
     logger.info(f"Splitting {len(frames)} frames using distance threshold {dist_thresh}m")
     
@@ -111,11 +111,73 @@ def split_frames_by_origin(
         else:
             cur_len = 0
 
+    # Multi-level threshold detection
+    split_info = {
+        "status": "FAILED",
+        "train_count": 0,
+        "val_count": 0,
+        "split_quality": "FAILED",
+        "distance_used": dist_thresh,
+        "pause_frames": best_len
+    }
+    
     if best_len < min_run:
-        logger.warning(f"No near-origin segment detected (best: {best_len}, required: {min_run})")
-        logger.warning("Using simple 80-20 split instead")
+        # Try with warning threshold (1.0m)
+        if dist_thresh < Config.COLMAP_SPLIT_DISTANCE_WARNING:
+            logger.info(f"Trying with warning threshold: {Config.COLMAP_SPLIT_DISTANCE_WARNING}m")
+            
+            # Recalculate with warning threshold
+            best_len_warn = best_end_warn = 0
+            cur_len = 0
+            for i, r in enumerate(radii_A):
+                if r < Config.COLMAP_SPLIT_DISTANCE_WARNING:
+                    cur_len += 1
+                    if cur_len > best_len_warn:
+                        best_len_warn, best_end_warn = cur_len, i
+                else:
+                    cur_len = 0
+            
+            if best_len_warn >= min_run:
+                # Use warning threshold split
+                split_start = best_end_warn - best_len_warn + 1
+                split_end = best_end_warn
+                split_start_B = min(split_start, len(radii_B))
+                split_end_B = min(split_end, len(radii_B) - 1)
+                
+                train_frames = camA[:split_start] + camB[:split_start_B]
+                val_frames = camA[split_end + 1:] + camB[split_end_B + 1:]
+                
+                split_info.update({
+                    "status": "WARNING", 
+                    "split_quality": "WARNING",
+                    "train_count": len(train_frames),
+                    "val_count": len(val_frames),
+                    "distance_used": Config.COLMAP_SPLIT_DISTANCE_WARNING,
+                    "pause_frames": best_len_warn
+                })
+                
+                logger.warning(f"Split with WARNING quality: train={len(train_frames)}, val={len(val_frames)}, pause={best_len_warn}")
+                return train_frames, val_frames, split_info
+        
+        # Both thresholds failed - use fallback split
+        logger.error(f"Split FAILED: No adequate near-origin segment detected (best: {best_len}, required: {min_run})")
+        logger.error("Cannot perform reliable train/validation split")
+        
+        # Return fallback 80-20 split but mark as failed
         split_idx = int(0.8 * len(frames))
-        return frames[:split_idx], frames[split_idx:]
+        train_frames = frames[:split_idx]
+        val_frames = frames[split_idx:]
+        
+        split_info.update({
+            "status": "FAILED",
+            "split_quality": "FAILED", 
+            "train_count": len(train_frames),
+            "val_count": len(val_frames),
+            "distance_used": dist_thresh,
+            "pause_frames": best_len
+        })
+        
+        return train_frames, val_frames, split_info
 
     # Calculate split points
     split_start = best_end - best_len + 1
@@ -128,12 +190,29 @@ def split_frames_by_origin(
     train_frames = camA[:split_start] + camB[:split_start_B]
     val_frames = camA[split_end + 1:] + camB[split_end_B + 1:]
 
+    # Determine split quality
+    if dist_thresh <= Config.COLMAP_SPLIT_DISTANCE_GOOD:
+        split_quality = "GOOD"
+        status = "SUCCESS"
+    else:
+        split_quality = "WARNING" 
+        status = "WARNING"
+    
+    split_info.update({
+        "status": status,
+        "split_quality": split_quality,
+        "train_count": len(train_frames),
+        "val_count": len(val_frames),
+        "distance_used": dist_thresh,
+        "pause_frames": best_len
+    })
+
     logger.info(
-        f"Frame split result: train={len(train_frames)}, "
+        f"Frame split result ({split_quality}): train={len(train_frames)}, "
         f"val={len(val_frames)}, pause_len={best_len}"
     )
 
-    return train_frames, val_frames
+    return train_frames, val_frames, split_info
 
 
 def write_images_txt(
@@ -300,7 +379,7 @@ def generate_colmap_format(
     transforms_json_path: str,
     original_data_path: str,
     colorized_las_path: str = None
-) -> bool:
+) -> Tuple[bool, Dict]:
     """
     Generate COLMAP format files from transforms.json and optional point cloud.
     
@@ -311,19 +390,19 @@ def generate_colmap_format(
         colorized_las_path: Optional path to colorized.las file for points3D.txt generation
         
     Returns:
-        True if successful, False otherwise
+        Tuple of (success: bool, split_info: dict)
     """
     try:
         logger.info("=== Starting COLMAP format generation ===")
         
         if not Config.ENABLE_COLMAP_GENERATION:
             logger.info("COLMAP generation disabled in config")
-            return True
+            return True, {"status": "DISABLED", "split_quality": "N/A", "train_count": 0, "val_count": 0}
         
         # Load transforms.json
         if not os.path.exists(transforms_json_path):
             logger.error(f"transforms.json not found: {transforms_json_path}")
-            return False
+            return False, {"status": "ERROR", "split_quality": "FAILED", "train_count": 0, "val_count": 0}
             
         with open(transforms_json_path, 'r') as f:
             data = json.load(f)
@@ -331,7 +410,7 @@ def generate_colmap_format(
         frames = data.get('frames', [])
         if not frames:
             logger.error("No frames found in transforms.json")
-            return False
+            return False, {"status": "ERROR", "split_quality": "FAILED", "train_count": 0, "val_count": 0}
             
         logger.info(f"Loaded {len(frames)} frames from transforms.json")
         
@@ -343,9 +422,9 @@ def generate_colmap_format(
         global_rot = np.array(Config.COLMAP_GLOBAL_ROTATION)
         
         # Split frames into train/validation
-        train_frames, val_frames = split_frames_by_origin(
+        train_frames, val_frames, split_info = split_frames_by_origin(
             frames, global_trans, global_rot,
-            dist_thresh=Config.COLMAP_ORIGIN_DISTANCE_THRESHOLD,
+            dist_thresh=Config.COLMAP_SPLIT_DISTANCE_GOOD,
             min_run=Config.COLMAP_MIN_PAUSE_FRAMES
         )
         
@@ -433,11 +512,11 @@ def generate_colmap_format(
         else:
             logger.error("COLMAP format generation failed")
             
-        return success
+        return success, split_info
         
     except Exception as e:
         logger.error(f"COLMAP format generation error: {e}")
-        return False
+        return False, {"status": "ERROR", "split_quality": "FAILED", "train_count": 0, "val_count": 0}
 
 
 def load_pointcloud_from_las(las_path: str):

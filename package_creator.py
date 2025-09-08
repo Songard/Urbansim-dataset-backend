@@ -117,7 +117,7 @@ def create_final_package(
             else:
                 logger.info("No colorized.las file found, will generate COLMAP files without points3D.txt")
             
-            colmap_success = generate_colmap_format(
+            colmap_success, split_info = generate_colmap_format(
                 output_dir=str(temp_package_dir),
                 transforms_json_path=str(transforms_json_path),
                 original_data_path=str(temp_package_dir),  # Use temp_package_dir where camera/ is already copied
@@ -125,6 +125,7 @@ def create_final_package(
             )
             if colmap_success:
                 logger.info("✓ COLMAP format generation completed")
+                logger.info(f"Train/Val split: {split_info['train_count']}/{split_info['val_count']} ({split_info['split_quality']})")
             else:
                 logger.warning("COLMAP format generation failed, continuing without COLMAP files")
         else:
@@ -186,11 +187,21 @@ def create_final_package(
         if not verification_result:
             logger.warning("Package verification failed, but package was created")
         
+        # Prepare COLMAP result info for metadata
+        colmap_result_info = {}
+        if 'colmap_success' in locals() and colmap_success and split_info:
+            colmap_result_info = {
+                'train_count': split_info.get('train_count', 0),
+                'val_count': split_info.get('val_count', 0), 
+                'split_quality': split_info.get('split_quality', 'FAILED')
+            }
+        
         return {
             'success': True,
             'package_path': str(final_package_path),
             'package_size_mb': package_size_mb,
-            'compression_duration': compression_duration
+            'compression_duration': compression_duration,
+            'colmap_result': colmap_result_info
         }
         
     except Exception as e:
