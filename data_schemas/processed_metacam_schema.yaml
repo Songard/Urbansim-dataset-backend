@@ -42,6 +42,7 @@ preserved_directories:
         optional: false
 
 # 处理结果文件（从exe输出获取）
+# 输出位置: ./processors/exe_packages/processed/output/{package_name}_output
 processing_output_files:
   - path: "*"
     description: "处理后的点云文件（保持原始文件名）"
@@ -61,6 +62,7 @@ processing_output_files:
     max_size: 5242880  # 5MB
     extensions: [".json"]
     required: true
+    location_note: "位于: ./processors/exe_packages/processed/output/{package_name}_output"
 
 # 可选的处理输出文件
 optional_processing_files:

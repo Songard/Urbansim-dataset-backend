@@ -90,7 +90,7 @@ Google Drive Upload → Download → Extract → Validate → Process → Packag
 - **Intelligent Scene Detection**: Automatic outdoor/indoor/narrow scene classification for optimal processing
 - **Unified Path Management**: Both processing tools receive the same data package root directory
 - **Post-Processing Package Assembly**: Automatic creation of final packages combining processing results with original metadata
-- **Robust Output File Search**: Multi-location search for processing outputs ensuring reliability
+- **Standardized Output Location**: Consistent output file location for processing results
 - **Package Verification**: Automatic validation of final package contents and structure
 
 ### 🔍 Advanced Validation
@@ -197,10 +197,10 @@ LOG_BACKUP_COUNT=5                   # Number of backup log files
 PROCESSORS_EXE_PATH=./processors/exe_packages  # Path to processing executables
 PROCESSING_TIMEOUT_SECONDS=600       # General processing timeout (10 minutes)
 METACAM_CLI_TIMEOUT_SECONDS=3600     # MetaCam CLI specific timeout (1 hour)
-PROCESSING_OUTPUT_PATH=./processed/output     # Intermediate processing output directory (final packages go to ./processed/)
 AUTO_START_PROCESSING=True           # Automatically start processing after validation
 PROCESSING_RETRY_ATTEMPTS=2          # Number of retry attempts on failure
 KEEP_ORIGINAL_DATA=True              # Preserve original data after processing
+# Note: Processing outputs are searched in: ./processors/exe_packages/processed/output/{package_name}_output
 
 # MetaCam CLI Configuration
 METACAM_CLI_MODE=0                   # Processing mode: 0=fast, 1=precision
@@ -300,10 +300,8 @@ After successful 3D reconstruction processing, the system automatically creates 
 
 **Output Location**: Final packages are saved to the `./processed/` directory for unified output management
 
-**Package Search Logic**: The system searches multiple locations for processing outputs to ensure reliability:
-- Configured output directory
-- Executable-relative output paths  
-- Alternative naming patterns (e.g., `o_{package_name}_output`)
+**Package Search Logic**: The system searches for processing outputs in a standardized location:
+- `./processors/exe_packages/processed/output/{package_name}_output`
 
 ### Processing Status Tracking
 
@@ -507,4 +505,4 @@ For technical support or questions:
 ---
 
 *Last Updated: 2025-09-07*  
-*Version: 3.2 - Added comprehensive post-processing pipeline with final package assembly, multi-location output search, and enhanced documentation*
+*Version: 3.3 - Added COLMAP format generation with points3D.txt, visualization, and standardized output location for improved consistency*

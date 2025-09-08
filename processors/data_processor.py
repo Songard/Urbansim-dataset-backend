@@ -91,7 +91,7 @@ class DataProcessor:
     
     Key Features:
     - Automatic scene type detection (Indoor/Outdoor/Balance)
-    - Multi-location output file search for robustness
+    - Standardized output file location for consistency
     - Real-time process monitoring with timeout handling
     - Comprehensive logging and error reporting
     - Final package assembly and verification
@@ -1118,6 +1118,7 @@ class DataProcessor:
         
         This method:
         1. Searches for the required output files (colorized.las, transforms.json)
+           in the standardized output location: ./processors/exe_packages/processed/output/{package_name}_output
         2. Copies required files from the original package
         3. Creates and compresses the final processed package
         
@@ -1176,7 +1177,9 @@ class DataProcessor:
     
     def _find_processing_output_files(self, package_name: str) -> Dict[str, Optional[str]]:
         """
-        Search for the required processing output files in possible locations
+        Search for the required processing output files in the standardized output location
+        
+        Searches in: ./processors/exe_packages/processed/output/{package_name}_output
         
         Args:
             package_name: Name of the processed package
@@ -1189,20 +1192,10 @@ class DataProcessor:
             'transforms_json': None
         }
         
-        # Possible output locations to search
+        # Single output location to search
         search_locations = [
-            # Original configured output path
-            Path(Config.PROCESSING_OUTPUT_PATH) / f"{package_name}_output",
-            
-            # Relative to exe directory (as mentioned by user)
-            self.metacam_cli_path.parent / "processed" / "output" / f"o_{package_name}_output",
-            
-            # Relative to exe directory alternative patterns
-            self.metacam_cli_path.parent / "output" / f"{package_name}_output",
-            self.metacam_cli_path.parent / "output",
-            
-            # Any output directory near exe
-            self.metacam_cli_path.parent / "processed" / "output"
+            # Relative to exe directory
+            self.metacam_cli_path.parent / "processed" / "output" / f"{package_name}_output"
         ]
         
         logger.info(f"=== Starting search for output files (colorized.las & transforms.json) ===")
