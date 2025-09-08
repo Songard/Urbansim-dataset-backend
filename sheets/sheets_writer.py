@@ -58,7 +58,7 @@ class SheetsWriter:
         #
         self.headers = [
             'Entry ID', 'Validation Status', 'Validation Score', 'File ID', 'File Name', 'Upload Time', 'Device ID', 'Owner Name', 'Uploader Email', 'File Size', 'File Type',
-            'Extract Status', 'File Count', 'Process Time', 'Start Time', 'Duration', 'Location', 'Scene Type', 'Size Status', 
+            'Extract Status', 'File Count', 'File Collection Status', 'Process Time', 'Start Time', 'Duration', 'Location', 'Scene Type', 'Size Status', 
             'PCD Scale', 'Transient Detection', 'Weighted Detection Density', 'Weighted Person Occupancy', 'Scene Activity Index', 'Error Message', 'Warning Message', 'Notes'
         ]
         
@@ -67,9 +67,9 @@ class SheetsWriter:
         self.field_mapping = {
             'entry_id': 0, 'validation_status': 1, 'validation_score': 2, 'file_id': 3, 'file_name': 4, 
             'upload_time': 5, 'device_id': 6, 'owner_name': 7, 'uploader_email': 8, 'file_size': 9, 'file_type': 10, 'extract_status': 11, 'file_count': 12, 
-            'process_time': 13, 'start_time': 14, 'duration': 15, 'location': 16, 'scene_type': 17, 
-            'size_status': 18, 'pcd_scale': 19, 'transient_decision': 20, 'wdd': 21, 'wpo': 22, 
-            'sai': 23, 'error_message': 24, 'warning_message': 25, 'notes': 26
+            'file_collection_status': 13, 'process_time': 14, 'start_time': 15, 'duration': 16, 'location': 17, 'scene_type': 18, 
+            'size_status': 19, 'pcd_scale': 20, 'transient_decision': 21, 'wdd': 22, 'wpo': 23, 
+            'sai': 24, 'error_message': 25, 'warning_message': 26, 'notes': 27
         }
         self._initialize_service()
     
@@ -136,7 +136,7 @@ class SheetsWriter:
             if not self._verify_and_get_sheet_name():
                 return False
             
-            range_name = f"'{self.sheet_name}'!A1:AA1"
+            range_name = f"'{self.sheet_name}'!A1:AB1"
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.spreadsheet_id,
                 range=range_name
@@ -204,7 +204,7 @@ class SheetsWriter:
                 logger.info(f"Using first sheet: '{self.sheet_name}'")
                 
                 # Try again with proper sheet name
-                range_name = f"'{self.sheet_name}'!A1:AA1"
+                range_name = f"'{self.sheet_name}'!A1:AB1"
                 result = self.service.spreadsheets().values().get(
                     spreadsheetId=self.spreadsheet_id,
                     range=range_name
@@ -225,7 +225,7 @@ class SheetsWriter:
             
     def _create_headers(self):
         try:
-            range_name = f"'{self.sheet_name}'!A1:AA1"
+            range_name = f"'{self.sheet_name}'!A1:AB1"
             body = {
                 'values': [self.headers]
             }
@@ -612,6 +612,72 @@ class SheetsWriter:
             
         except Exception as e:
             logger.warning(f"Failed to format validation status cell for row {row_number}: {e}")
+    
+    def _format_file_collection_status_cell(self, row_number: int, collection_status: str):
+        """Apply color formatting to File Collection Status cell based on status"""
+        if not collection_status:
+            return
+            
+        try:
+            # File Collection Status is column N (index 13, 0-based)
+            collection_status_column = 13
+            
+            # Define colors based on collection status
+            colors = {
+                'PASS': {'red': 0.85, 'green': 0.95, 'blue': 0.85},          # Light green
+                'FAILED': {'red': 1.0, 'green': 0.85, 'blue': 0.85},        # Light red
+                'MISSING_FILES': {'red': 1.0, 'green': 0.85, 'blue': 0.85}, # Light red
+                'PARTIAL': {'red': 1.0, 'green': 0.95, 'blue': 0.8},        # Light yellow
+                'NOT_CHECKED': {'red': 0.9, 'green': 0.9, 'blue': 0.9}      # Light gray
+            }
+            
+            background_color = colors.get(collection_status, colors['NOT_CHECKED'])
+            
+            # Get sheet ID for formatting
+            spreadsheet = self.service.spreadsheets().get(
+                spreadsheetId=self.spreadsheet_id
+            ).execute()
+            
+            sheet_id = None
+            for sheet in spreadsheet.get('sheets', []):
+                if sheet['properties']['title'] == self.sheet_name:
+                    sheet_id = sheet['properties']['sheetId']
+                    break
+            
+            if sheet_id is None:
+                logger.warning(f"Could not find sheet ID for '{self.sheet_name}'")
+                return
+            
+            requests = [
+                {
+                    'repeatCell': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'startRowIndex': row_number - 1,  # 0-based
+                            'endRowIndex': row_number,
+                            'startColumnIndex': collection_status_column,
+                            'endColumnIndex': collection_status_column + 1
+                        },
+                        'cell': {
+                            'userEnteredFormat': {
+                                'backgroundColor': background_color
+                            }
+                        },
+                        'fields': 'userEnteredFormat.backgroundColor'
+                    }
+                }
+            ]
+            
+            body = {'requests': requests}
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body=body
+            ).execute()
+            
+            logger.debug(f"Applied {collection_status} formatting to row {row_number}, column {collection_status_column}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to format file collection status cell for row {row_number}: {e}")
             
     def _get_next_empty_row(self) -> int:
         try:
@@ -704,7 +770,7 @@ class SheetsWriter:
                     return False
                     
                 next_row = self._get_next_empty_row()
-                range_name = f"'{self.sheet_name}'!A{next_row}:AA{next_row}"
+                range_name = f"'{self.sheet_name}'!A{next_row}:AB{next_row}"
                 
                 # Use unified data preparation method
                 formatted_record = self.prepare_record_row(record)
@@ -766,6 +832,11 @@ class SheetsWriter:
                 if transient_decision:
                     self._format_transient_detection_cell(next_row, transient_decision)
                 
+                # File collection status formatting
+                file_collection_status = record.get('file_collection_status', '')
+                if file_collection_status:
+                    self._format_file_collection_status_cell(next_row, file_collection_status)
+                
                 logger.info(f"Successfully wrote record to row {next_row}: {record.get('file_name', 'Unknown')}")
                 return True
                 
@@ -823,7 +894,7 @@ class SheetsWriter:
                         formatted_record = self.prepare_record_row(record)
                         formatted_records.append(formatted_record)
                     
-                    range_name = f"'{self.sheet_name}'!A{next_row}:AA{next_row + len(batch) - 1}"
+                    range_name = f"'{self.sheet_name}'!A{next_row}:AB{next_row + len(batch) - 1}"
                     body = {
                         'values': formatted_records
                     }
@@ -876,6 +947,11 @@ class SheetsWriter:
                         batch_transient_decision = batch_transient_data.get('decision', '') if batch_transient_data else ""
                         if batch_transient_decision:
                             self._format_transient_detection_cell(next_row + j, batch_transient_decision)
+                        
+                        # File collection status formatting
+                        file_collection_status = record.get('file_collection_status', '')
+                        if file_collection_status:
+                            self._format_file_collection_status_cell(next_row + j, file_collection_status)
                     
                     logger.info(f"Successfully wrote batch of {len(batch)} records starting at row {next_row}")
                     

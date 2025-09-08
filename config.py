@@ -261,7 +261,7 @@ class Config:
     # Metacam CLI 处理配置
     METACAM_CLI_MODE = os.getenv('METACAM_CLI_MODE', '1')  # 0=fast, 1=precision
     METACAM_CLI_COLOR = os.getenv('METACAM_CLI_COLOR', '1')  # 0=No, 1=Yes
-    METACAM_CLI_TIMEOUT_SECONDS = int(os.getenv('METACAM_CLI_TIMEOUT_SECONDS', '7200'))  # 2小时超时
+    METACAM_CLI_TIMEOUT_SECONDS = int(os.getenv('METACAM_CLI_TIMEOUT_SECONDS', '7'))  # 2小时超时
 
     # 场景类型判断阈值（用于自动选择scene参数）
     INDOOR_SCALE_THRESHOLD_M = float(os.getenv('INDOOR_SCALE_THRESHOLD_M', '30'))  # 30米以下认为是narrow场景

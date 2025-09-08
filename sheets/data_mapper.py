@@ -30,6 +30,7 @@ class SheetsDataMapper:
         'file_type': str,
         'extract_status': str,
         'file_count': str,
+        'file_collection_status': str,
         'process_time': datetime,
         
         # Validation fields
@@ -82,6 +83,9 @@ class SheetsDataMapper:
         
         # Extract transient detection information
         sheets_record.update(cls._extract_transient_info(validation_result))
+        
+        # Extract file collection information
+        sheets_record.update(cls._extract_file_collection_info(validation_result))
         
         # Extract metadata information
         metadata_info = cls._extract_metadata_info(validation_result)
@@ -155,6 +159,65 @@ class SheetsDataMapper:
             print(f"Warning: Failed to extract transient info: {e}")
         
         return transient_info
+    
+    @classmethod
+    def _extract_file_collection_info(cls, validation_result: Union[ValidationResult, Dict]) -> Dict[str, Any]:
+        """Extract file collection status information from processing results"""
+        collection_info = {
+            'file_collection_status': 'NOT_CHECKED'
+        }
+        
+        try:
+            # Get metadata to check for processing results
+            if isinstance(validation_result, dict):
+                metadata = validation_result.get('metadata', {})
+            else:
+                metadata = getattr(validation_result, 'metadata', {})
+            
+            if not metadata:
+                return collection_info
+            
+            # Check for processing pipeline results in metadata
+            processing_pipeline = metadata.get('processing_pipeline', {})
+            if processing_pipeline:
+                # Check if post-processing step exists and has results
+                processing_steps = processing_pipeline.get('processing_steps', [])
+                post_processing_step = None
+                
+                for step in processing_steps:
+                    if step.get('step') == 'post_processing':
+                        post_processing_step = step
+                        break
+                
+                if post_processing_step:
+                    step_result = post_processing_step.get('result', {})
+                    if step_result.get('success', False):
+                        # Post-processing succeeded, files were collected successfully
+                        collection_info['file_collection_status'] = 'PASS'
+                    else:
+                        # Post-processing failed, check error for missing files
+                        error_msg = step_result.get('error', '').lower()
+                        if 'required processing output files not found' in error_msg or 'missing files' in error_msg:
+                            collection_info['file_collection_status'] = 'MISSING_FILES'
+                        else:
+                            collection_info['file_collection_status'] = 'FAILED'
+                else:
+                    # No post-processing step found
+                    collection_info['file_collection_status'] = 'NOT_CHECKED'
+            
+            # Also check for any package creation results in the metadata
+            final_package_info = metadata.get('final_package_info', {})
+            if final_package_info:
+                # If final package was created successfully, mark as PASS
+                if final_package_info.get('success', False):
+                    collection_info['file_collection_status'] = 'PASS'
+                elif 'missing' in final_package_info.get('error', '').lower():
+                    collection_info['file_collection_status'] = 'MISSING_FILES'
+        
+        except Exception as e:
+            print(f"Warning: Failed to extract file collection info: {e}")
+        
+        return collection_info
     
     @classmethod
     def _extract_metadata_info(cls, validation_result: Union[ValidationResult, Dict]) -> Dict[str, Any]:
@@ -431,6 +494,7 @@ class SheetsDataMapper:
             'scene_type': 'unknown',
             'size_status': 'unknown',
             'pcd_scale': 'unknown',
+            'file_collection_status': 'NOT_CHECKED',
             'transient_decision': 'N/A',
             'wdd': 'N/A',
             'wpo': 'N/A',
@@ -453,7 +517,7 @@ class SheetsDataMapper:
     
     @classmethod
     def _format_error_for_display(cls, error_text: str) -> str:
-        """Format error text to be more user-friendly and specific"""
+        """Format error text to be more user-friendly and specific, including detailed missing file information"""
         # Common formatting improvements
         error_text = error_text.replace("Missing required file:", "Missing file:")
         error_text = error_text.replace("Missing required directory:", "Missing folder:")
@@ -466,6 +530,22 @@ class SheetsDataMapper:
             error_text = error_text.replace("validation failed", "validation failed")
         if "invalid" in error_text.lower() and "format" in error_text.lower():
             error_text = error_text.replace("Invalid", "Invalid format in")
+        
+        # Enhanced missing file error formatting
+        if "required processing output files not found" in error_text.lower():
+            # Extract specific missing files from the error message
+            if "colorized.las" in error_text and "transforms.json" in error_text:
+                error_text = "Missing processing output files: colorized.las, transforms.json"
+            elif "colorized.las" in error_text:
+                error_text = "Missing processing output file: colorized.las"
+            elif "transforms.json" in error_text:
+                error_text = "Missing processing output file: transforms.json"
+            else:
+                error_text = "Missing required processing output files"
+        
+        # Handle package verification failures with missing file details
+        if "package verification failed" in error_text.lower() and "missing files" in error_text.lower():
+            error_text = error_text.replace("Package verification failed - missing files:", "Package missing files:")
         
         return error_text
     

@@ -418,11 +418,6 @@ class GoogleDriveMonitorSystem:
             }
             
             
-            if self.sheets_writer.append_record_v2(sheets_record):
-                logger.success(f"Written to Sheets: {file_name}")
-            else:
-                logger.warning(f"Sheets write failed, but file processed successfully: {file_name}")
-            
             # 4. 数据处理阶段（在验证通过后自动启动）
             processing_results = None
             processing_status = "未执行"
@@ -574,7 +569,24 @@ class GoogleDriveMonitorSystem:
                 elif not is_large_file:  # 普通文件根据配置发送
                     self.email_notifier.notify_file_processed(file_info, True)
             
-            # 5. 更新文件追踪记录（包含处理状态）
+            # 5. 更新sheets_record以包含处理结果，并写入Google Sheets
+            if processing_results:
+                # 将处理结果添加到validation_result的metadata中，供data_mapper提取文件收集状态
+                if data_validation_result and isinstance(data_validation_result, dict):
+                    if 'metadata' not in data_validation_result:
+                        data_validation_result['metadata'] = {}
+                    data_validation_result['metadata']['processing_pipeline'] = processing_results
+                
+                # 更新sheets_record的validation_result
+                sheets_record['validation_result'] = data_validation_result
+            
+            # 写入Google Sheets（包含处理结果信息）
+            if self.sheets_writer.append_record_v2(sheets_record):
+                logger.success(f"Written to Sheets: {file_name}")
+            else:
+                logger.warning(f"Sheets write failed, but file processed successfully: {file_name}")
+            
+            # 6. 更新文件追踪记录（包含处理状态）
             self.file_tracker.add_processed_file(
                 file_id, 
                 file_name, 
@@ -585,11 +597,12 @@ class GoogleDriveMonitorSystem:
                     'file_count': file_count,
                     'process_time': (datetime.now() - process_start_time).total_seconds(),
                     'processing_status': processing_status,
-                    'processing_results': processing_results
+                    'processing_results': processing_results,
+                    'processing_pipeline': processing_results  # 添加处理管道结果供data_mapper提取文件收集状态
                 }
             )
             
-            # 6. 移动文件到processed目录
+            # 7. 移动文件到processed目录
             if Config.CLEAN_TEMP_FILES:
                 processed_path = Path(Config.PROCESSED_PATH) / file_name
                 try:
@@ -635,6 +648,7 @@ class GoogleDriveMonitorSystem:
                 'file_type': file_info.get('mimeType', ''),
                 'extract_status': 'Failed',
                 'file_count': '',
+                'file_collection_status': 'NOT_CHECKED',  # 失败时设为NOT_CHECKED
                 'process_time': start_time,
                 'validation_score': 'N/A (Failed)',
                 'scene_type': 'unknown',          # 失败时设为unknown
