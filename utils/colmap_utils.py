@@ -307,7 +307,7 @@ def generate_colmap_format(
     Args:
         output_dir: Directory where COLMAP files will be created
         transforms_json_path: Path to transforms.json file
-        original_data_path: Path to original data directory containing images
+        original_data_path: Path to directory containing camera/ folder with images
         colorized_las_path: Optional path to colorized.las file for points3D.txt generation
         
     Returns:

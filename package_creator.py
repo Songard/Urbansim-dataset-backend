@@ -120,7 +120,7 @@ def create_final_package(
             colmap_success = generate_colmap_format(
                 output_dir=str(temp_package_dir),
                 transforms_json_path=str(transforms_json_path),
-                original_data_path=str(original_path),
+                original_data_path=str(temp_package_dir),  # Use temp_package_dir where camera/ is already copied
                 colorized_las_path=colorized_las_path
             )
             if colmap_success:
