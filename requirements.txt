@@ -13,3 +13,9 @@ ultralytics
 opencv-python
 numpy
 psutil
+tqdm
+matplotlib
+scipy
+laspy
+open3d
+plyfile

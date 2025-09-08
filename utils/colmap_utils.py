@@ -15,18 +15,34 @@ Based on the reference implementation in metacam.py
 import os
 import json
 import shutil
-from tqdm import tqdm
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 from typing import List, Dict, Tuple, Optional
 from pathlib import Path
-import matplotlib.pyplot as plt
 import random
 
 from config import Config
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Import tqdm with fallback
+try:
+    from tqdm import tqdm
+except ImportError:
+    # Simple fallback for progress display
+    def tqdm(iterable, desc=None, **kwargs):
+        if desc:
+            logger.info(f"Processing {desc}...")
+        return iterable
+
+# Import visualization libraries
+try:
+    import matplotlib.pyplot as plt
+    HAS_MATPLOTLIB = True
+except ImportError:
+    logger.warning("Matplotlib not available, visualization will be disabled")
+    HAS_MATPLOTLIB = False
 
 # Import point cloud processing libraries
 try:
@@ -35,7 +51,7 @@ try:
     HAS_POINTCLOUD_LIBS = True
 except ImportError as e:
     logger.warning(f"Point cloud libraries not available: {e}")
-    logger.warning("Points3D.txt generation and visualization will be disabled")
+    logger.warning("Points3D.txt generation will be disabled")
     HAS_POINTCLOUD_LIBS = False
 
 
@@ -665,6 +681,10 @@ def plot_three_views(points: np.ndarray, cams_train: np.ndarray, cams_val: np.nd
     Returns:
         True if successful, False otherwise
     """
+    if not HAS_MATPLOTLIB:
+        logger.warning("Matplotlib not available, skipping visualization")
+        return False
+        
     try:
         logger.info("Creating three-view visualization...")
         
