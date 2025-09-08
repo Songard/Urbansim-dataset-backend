@@ -27,6 +27,9 @@ class Config:
     ALLOWED_EXTENSIONS = os.getenv('ALLOWED_EXTENSIONS', '.zip,.rar,.7z,.tar,.gz').split(',')
     DEFAULT_PASSWORDS = os.getenv('DEFAULT_PASSWORDS', '123456,password').split(',')
     
+    # 支持的点云文件扩展名, '.laz', '.ply', '.pcd', '.xyz'
+    SUPPORTED_POINT_CLOUD_EXTENSIONS = ['.las',]
+    
     # 下载优化配置
     DOWNLOAD_CHUNK_SIZE_MB = int(os.getenv('DOWNLOAD_CHUNK_SIZE_MB', '32'))  # 32MB chunks for better speed
     DOWNLOAD_TIMEOUT = int(os.getenv('DOWNLOAD_TIMEOUT', '300'))  # 5 minutes timeout

@@ -43,7 +43,7 @@ class SheetsWriter:
         #    - 确保从file_info正确提取数据传递给sheets_record
         #
         # 5. 【范围更新】更新Google Sheets范围引用
-        #    - 修改所有涉及列范围的字符串（如A1:Y1 -> A1:AA1）
+        #    - 修改所有涉及列范围的字符串（如A1:Y1 -> A1:AD1）
         #
         # 【本次Owner/Uploader字段添加遇到的问题分析】
         # 问题根本原因：数据流程中断 - 虽然步骤1、2、3都做了，但步骤4遗漏了
@@ -136,7 +136,7 @@ class SheetsWriter:
             if not self._verify_and_get_sheet_name():
                 return False
             
-            range_name = f"'{self.sheet_name}'!A1:AC1"
+            range_name = f"'{self.sheet_name}'!A1:AD1"
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.spreadsheet_id,
                 range=range_name
@@ -204,7 +204,7 @@ class SheetsWriter:
                 logger.info(f"Using first sheet: '{self.sheet_name}'")
                 
                 # Try again with proper sheet name
-                range_name = f"'{self.sheet_name}'!A1:AC1"
+                range_name = f"'{self.sheet_name}'!A1:AD1"
                 result = self.service.spreadsheets().values().get(
                     spreadsheetId=self.spreadsheet_id,
                     range=range_name
@@ -225,7 +225,7 @@ class SheetsWriter:
             
     def _create_headers(self):
         try:
-            range_name = f"'{self.sheet_name}'!A1:AC1"
+            range_name = f"'{self.sheet_name}'!A1:AD1"
             body = {
                 'values': [self.headers]
             }
