@@ -307,6 +307,14 @@ class Config:
     # COLMAP 输出格式配置
     COLMAP_OUTPUT_FORMAT = os.getenv('COLMAP_OUTPUT_FORMAT', '.txt')  # '.txt' or '.bin' - 输出格式选择
     
+    # 最终打包内容配置
+    PACKAGE_INCLUDE_ORIGINAL_FILES = os.getenv('PACKAGE_INCLUDE_ORIGINAL_FILES', 'False').lower() == 'true'  # 是否包含原始文件
+    PACKAGE_INCLUDE_PROCESSING_OUTPUTS = os.getenv('PACKAGE_INCLUDE_PROCESSING_OUTPUTS', 'False').lower() == 'true'  # 是否包含处理输出文件
+    PACKAGE_INCLUDE_COLMAP_FILES = os.getenv('PACKAGE_INCLUDE_COLMAP_FILES', 'True').lower() == 'true'  # 是否包含COLMAP文件
+    PACKAGE_INCLUDE_CAMERA_IMAGES = os.getenv('PACKAGE_INCLUDE_CAMERA_IMAGES', 'False').lower() == 'true'  # 是否包含相机图像文件
+    PACKAGE_INCLUDE_PREVIEW_IMAGE = os.getenv('PACKAGE_INCLUDE_PREVIEW_IMAGE', 'True').lower() == 'true'  # 是否包含预览图
+    PACKAGE_INCLUDE_VISUALIZATION = os.getenv('PACKAGE_INCLUDE_VISUALIZATION', 'True').lower() == 'true'  # 是否包含可视化文件
+    
     # ========================================
     # Hugging Face 上传配置 (Hugging Face Upload Configuration)  
     # ========================================
