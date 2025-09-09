@@ -59,7 +59,7 @@ class SheetsWriter:
         self.headers = [
             'Entry ID', 'Validation Status', 'Validation Score', 'File ID', 'File Name', 'Upload Time', 'Device ID', 'Owner Name', 'Uploader Email', 'File Size', 'File Type',
             'Extract Status', 'File Count', 'Train/Val Split', 'File Collection Status', 'Process Time', 'Start Time', 'Duration', 'Location', 'Scene Type', 'Size Status', 
-            'PCD Scale', 'Transient Detection', 'Weighted Detection Density', 'Weighted Person Occupancy', 'Scene Activity Index', 'Error Message', 'Warning Message', 'HF Upload Status', 'Notes'
+            'PCD Scale', 'Transient Detection', 'Avg Persons/Frame', 'Avg Area Occupied', 'Self Appearance Index', 'Error Message', 'Warning Message', 'HF Upload Status', 'Notes'
         ]
         
         # Field mapping to headers - reorganized for better readability

@@ -209,10 +209,16 @@ class HuggingFaceUploader:
             upload_result = self._upload_with_retry(package_path, upload_path)
             
             if upload_result['success']:
+                # Generate the direct file URL
+                file_url = f"https://huggingface.co/datasets/{self.repo_id}/blob/main/{upload_path}"
+                repo_url = f"https://huggingface.co/datasets/{self.repo_id}"
+                
                 # Create upload info for tracking
                 upload_info = {
                     'success': True,
                     'upload_path': upload_path,
+                    'file_url': file_url,
+                    'repo_url': repo_url,
                     'file_size_mb': file_size_mb,
                     'upload_time': datetime.now().isoformat(),
                     'repo_id': self.repo_id,
@@ -225,7 +231,8 @@ class HuggingFaceUploader:
                     upload_info['metadata'] = metadata
                 
                 logger.success(f"✓ Upload completed: {upload_path}")
-                logger.info(f"Repository: https://huggingface.co/datasets/{self.repo_id}")
+                logger.info(f"Repository: {repo_url}")
+                logger.info(f"File URL: {file_url}")
                 return upload_info
             else:
                 return upload_result

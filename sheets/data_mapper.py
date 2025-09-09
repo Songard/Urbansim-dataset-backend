@@ -46,9 +46,9 @@ class SheetsDataMapper:
         
         # Transient detection fields
         'transient_decision': str,
-        'wdd': str,
-        'wpo': str,
-        'sai': str,
+        'wdd': str,  # 平均每帧人数 (Avg Persons/Frame)
+        'wpo': str,  # 平均每帧面积占比 (Avg Area Occupied)
+        'sai': str,  # 自身入镜指数 (Self Appearance Index)
         
         # Processing and upload fields  
         'train_val_split': str,
@@ -130,12 +130,12 @@ class SheetsDataMapper:
     
     @classmethod
     def _extract_transient_info(cls, validation_result: Union[ValidationResult, Dict]) -> Dict[str, Any]:
-        """Extract transient detection information"""
+        """Extract transient detection information with user-friendly metrics"""
         transient_info = {
             'transient_decision': 'N/A',
-            'wdd': 'N/A',
-            'wpo': 'N/A',
-            'sai': 'N/A'
+            'wdd': 'N/A',    # 平均每帧人数 (Avg Persons/Frame)
+            'wpo': 'N/A',    # 平均每帧面积占比 (Avg Area Occupied)  
+            'sai': 'N/A'     # 自身入镜指数 (Self Appearance Index)
         }
         
         try:
@@ -157,13 +157,18 @@ class SheetsDataMapper:
                 
                 metrics = transient_detection.get('metrics', {})
                 if metrics:
-                    wdd = metrics.get('WDD')
-                    wpo = metrics.get('WPO')
-                    sai = metrics.get('SAI')
+                    wdd = metrics.get('WDD')  # Weighted Detection Density
+                    wpo = metrics.get('WPO')  # Weighted Pixel Occupancy
+                    sai = metrics.get('SAI')  # Self-Appearance Index
                     
-                    transient_info['wdd'] = f"{wdd:.3f}" if wdd is not None else 'N/A'
-                    transient_info['wpo'] = f"{wpo:.1f}%" if wpo is not None else 'N/A'
-                    transient_info['sai'] = f"{sai:.1f}%" if sai is not None else 'N/A'
+                    # Format WDD as average persons per frame (clean number format)
+                    transient_info['wdd'] = f"{wdd:.2f}" if wdd is not None else 'N/A'
+                    
+                    # Format WPO as percentage (clean number format)
+                    transient_info['wpo'] = f"{wpo:.1f}" if wpo is not None else 'N/A'
+                    
+                    # Format SAI as percentage (clean number format)
+                    transient_info['sai'] = f"{sai:.1f}" if sai is not None else 'N/A'
         
         except Exception as e:
             print(f"Warning: Failed to extract transient info: {e}")
@@ -431,9 +436,11 @@ class SheetsDataMapper:
         try:
             # Check for processing pipeline containing HF upload result
             if isinstance(validation_result, dict):
-                processing_pipeline = validation_result.get('processing_pipeline', {})
+                metadata = validation_result.get('metadata', {})
+                processing_pipeline = metadata.get('processing_pipeline', {})
             else:
-                processing_pipeline = getattr(validation_result, 'processing_pipeline', {}) if validation_result else {}
+                metadata = getattr(validation_result, 'metadata', {}) if validation_result else {}
+                processing_pipeline = metadata.get('processing_pipeline', {})
             
             if processing_pipeline:
                 # Check for HF upload result in processing pipeline
@@ -441,7 +448,18 @@ class SheetsDataMapper:
                 
                 if hf_upload_result:
                     if hf_upload_result.get('success'):
-                        hf_info['hf_upload_status'] = 'UPLOADED'
+                        # Extract URL information from upload result
+                        file_url = hf_upload_result.get('file_url', '')
+                        repo_url = hf_upload_result.get('repo_url', '')
+                        upload_path = hf_upload_result.get('upload_path', '')
+                        
+                        # Create status with URL
+                        if file_url:
+                            hf_info['hf_upload_status'] = f"UPLOADED: {file_url}"
+                        elif repo_url and upload_path:
+                            hf_info['hf_upload_status'] = f"UPLOADED: {repo_url}/blob/main/{upload_path}"
+                        else:
+                            hf_info['hf_upload_status'] = 'UPLOADED'
                     elif hf_upload_result.get('skipped'):
                         reason = hf_upload_result.get('reason', '')
                         if 'disabled' in reason.lower():
