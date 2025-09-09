@@ -313,7 +313,7 @@ class Config:
     PACKAGE_INCLUDE_COLMAP_FILES = os.getenv('PACKAGE_INCLUDE_COLMAP_FILES', 'True').lower() == 'true'  # 是否包含COLMAP文件
     PACKAGE_INCLUDE_CAMERA_IMAGES = os.getenv('PACKAGE_INCLUDE_CAMERA_IMAGES', 'False').lower() == 'true'  # 是否包含相机图像文件
     PACKAGE_INCLUDE_PREVIEW_IMAGE = os.getenv('PACKAGE_INCLUDE_PREVIEW_IMAGE', 'True').lower() == 'true'  # 是否包含预览图
-    PACKAGE_INCLUDE_VISUALIZATION = os.getenv('PACKAGE_INCLUDE_VISUALIZATION', 'True').lower() == 'true'  # 是否包含可视化文件
+    PACKAGE_INCLUDE_VISUALIZATION = os.getenv('PACKAGE_INCLUDE_VISUALIZATION', 'False').lower() == 'true'  # 是否包含可视化文件
     
     # ========================================
     # Hugging Face 上传配置 (Hugging Face Upload Configuration)  
