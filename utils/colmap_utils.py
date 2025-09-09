@@ -598,12 +598,13 @@ def generate_colmap_format(
         if pcd is not None and success:
             logger.info("=== Creating alignment visualization ===")
             
-            # Load camera centers
-            images_train_path = os.path.join(dirs["sparse_dir"], "images.txt")
-            images_val_path = os.path.join(dirs["sparse_dir"], "images_val.txt")
+            # Load camera centers using the configured output format
+            output_format = Config.COLMAP_OUTPUT_FORMAT
+            images_train_path = os.path.join(dirs["sparse_dir"], f"images{output_format}")
+            images_val_path = os.path.join(dirs["sparse_dir"], f"images_val{output_format}")
             
-            cams_train = load_camera_centers(images_train_path, 800)
-            cams_val = load_camera_centers(images_val_path, 800)
+            cams_train = load_camera_centers_from_file(images_train_path, output_format, 800)
+            cams_val = load_camera_centers_from_file(images_val_path, output_format, 800)
             
             # Sample points for visualization
             vis_points = sample_points_for_visualization(
@@ -798,7 +799,37 @@ def write_colmap_points3d_txt(pcd, output_path: str) -> bool:
     return write_colmap_points3d_file(pcd, base_path, '.txt')
 
 
-def load_camera_centers(images_txt_path: str, num_samples: int = 500) -> np.ndarray:
+def load_camera_centers_from_file(images_file_path: str, file_format: str, num_samples: int = 500) -> np.ndarray:
+    """
+    Load camera centers from COLMAP images file (text or binary format).
+    
+    Args:
+        images_file_path: Path to images file
+        file_format: File format ('.txt' or '.bin')
+        num_samples: Maximum number of cameras to sample
+        
+    Returns:
+        Array of camera centers (N x 3)
+    """
+    try:
+        if not os.path.exists(images_file_path):
+            logger.warning(f"Images file not found: {images_file_path}")
+            return np.empty((0, 3))
+        
+        if file_format == '.txt':
+            return load_camera_centers_from_text(images_file_path, num_samples)
+        elif file_format == '.bin':
+            return load_camera_centers_from_binary(images_file_path, num_samples)
+        else:
+            logger.error(f"Unsupported file format: {file_format}")
+            return np.empty((0, 3))
+            
+    except Exception as e:
+        logger.error(f"Failed to load camera centers from {images_file_path}: {e}")
+        return np.empty((0, 3))
+
+
+def load_camera_centers_from_text(images_txt_path: str, num_samples: int = 500) -> np.ndarray:
     """
     Load camera centers from COLMAP images.txt file.
     
@@ -935,3 +966,56 @@ def plot_three_views(points: np.ndarray, cams_train: np.ndarray, cams_val: np.nd
     except Exception as e:
         logger.error(f"Visualization creation failed: {e}")
         return False
+
+
+def load_camera_centers_from_binary(images_bin_path: str, num_samples: int = 500) -> np.ndarray:
+    """
+    Load camera centers from COLMAP images.bin file using read_write_model.
+    
+    Args:
+        images_bin_path: Path to images.bin file
+        num_samples: Maximum number of cameras to sample
+        
+    Returns:
+        Array of camera centers (N x 3)
+    """
+    try:
+        from utils.read_write_model import read_images_binary
+        
+        logger.info(f"Loading camera centers from binary file: {images_bin_path}")
+        
+        # Load images from binary file using existing function
+        images = read_images_binary(images_bin_path)
+        
+        centers = []
+        image_ids = list(images.keys())
+        
+        # Sample images if too many
+        if len(image_ids) > num_samples:
+            image_ids = random.sample(image_ids, num_samples)
+        
+        for image_id in image_ids:
+            img = images[image_id]
+            
+            # Parse quaternion and translation
+            qvec = img.qvec  # [w, x, y, z] from COLMAP format
+            tvec = img.tvec  # [tx, ty, tz]
+            
+            # Convert quaternion to rotation matrix  
+            R_wc = R.from_quat([qvec[1], qvec[2], qvec[3], qvec[0]]).as_matrix()  # Convert to [x,y,z,w]
+            t_wc = np.array(tvec)
+            
+            # Calculate camera center: C = -R^T * t
+            C = -R_wc.T @ t_wc
+            centers.append(C)
+        
+        if centers:
+            logger.info(f"Loaded {len(centers)} camera centers from binary file")
+            return np.asarray(centers, dtype=float)
+        else:
+            logger.warning(f"No valid camera poses found in {images_bin_path}")
+            return np.empty((0, 3))
+        
+    except Exception as e:
+        logger.error(f"Failed to load camera centers from binary file: {e}")
+        return np.empty((0, 3))
