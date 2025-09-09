@@ -589,8 +589,8 @@ def load_pointcloud_from_las(las_path: str):
         
         # Apply coordinate transformation to match camera pose transformation R_x(-90°)
         # R_x(-90°) transforms [x,y,z] -> [x,z,-y]
-        pts_transformed = np.stack([pts[:, 1], -1 * pts[:, 2], pts[:, 0]], axis=1)
-        
+        pts_transformed = np.stack([pts[:, 1], -1 * pts[:, 2], -1 * pts[:, 0]], axis=1)
+
         # Create Open3D point cloud
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(pts_transformed)
