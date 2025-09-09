@@ -300,7 +300,7 @@ class Config:
     
     # 点云处理配置
     COLMAP_POINTCLOUD_DOWNSAMPLE_METHOD = os.getenv('COLMAP_POINTCLOUD_DOWNSAMPLE_METHOD', 'uniform')  # uniform or voxel
-    COLMAP_POINTCLOUD_EVERY_K_POINTS = int(os.getenv('COLMAP_POINTCLOUD_EVERY_K_POINTS', '5'))  # 均匀采样间隔
+    COLMAP_POINTCLOUD_EVERY_K_POINTS = int(os.getenv('COLMAP_POINTCLOUD_EVERY_K_POINTS', '1'))  # 均匀采样间隔
     COLMAP_POINTCLOUD_VOXEL_SIZE = float(os.getenv('COLMAP_POINTCLOUD_VOXEL_SIZE', '0.02'))  # 体素下采样大小
     COLMAP_VISUALIZATION_SAMPLE_POINTS = int(os.getenv('COLMAP_VISUALIZATION_SAMPLE_POINTS', '4000'))  # 可视化采样点数
     

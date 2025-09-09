@@ -587,15 +587,16 @@ def load_pointcloud_from_las(las_path: str):
         
         logger.info(f"Loaded {len(pts)} points from LAS file")
         
-        # Apply coordinate transformation: [y, -x, z] (same as metacam.py)
-        pts_transformed = np.stack([pts[:, 1], -1 * pts[:, 0], pts[:, 2]], axis=1)
+        # Apply coordinate transformation to match camera pose transformation R_x(-90°)
+        # R_x(-90°) transforms [x,y,z] -> [x,z,-y]
+        pts_transformed = np.stack([pts[:, 0], pts[:, 2], -1 * pts[:, 1]], axis=1)
         
         # Create Open3D point cloud
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(pts_transformed)
         pcd.colors = o3d.utility.Vector3dVector(cols)
         
-        logger.info("Point cloud coordinate transformation applied: [y, -x, z]")
+        logger.info("Point cloud coordinate transformation applied: [x, z, -y] to match camera R_x(-90°)")
         
         return pcd
         
