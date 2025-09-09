@@ -499,15 +499,16 @@ class GoogleDriveMonitorSystem:
                                     if output_files.get('colorized_las') and output_files.get('transforms_json'):
                                         logger.info("Creating final processed package...")
                                         
-                                        # Extract scene type from validation result
-                                        scene_type = "outdoor"  # default
-                                        if validation_for_processing and 'metadata' in validation_for_processing:
-                                            extracted_metadata = validation_for_processing['metadata'].get('extracted_metadata', {})
-                                            if 'scene_validation' in extracted_metadata:
-                                                scene_validation = extracted_metadata['scene_validation']
-                                                detected_scene = scene_validation.get('scene_type', '').lower()
-                                                if detected_scene in ['indoor', 'outdoor']:
-                                                    scene_type = detected_scene
+                                        # Extract scene type from validation result (use same logic as sheet upload)
+                                        scene_type = "outdoor"  # default fallback
+                                        
+                                        # Use the same validation_result that was used for sheet upload
+                                        if 'validation_result' in locals() and validation_result:
+                                            scene_validation = validation_result.get('scene_validation', {})
+                                            scene_type = scene_validation.get('scene_type', 'outdoor')
+                                            logger.info(f"Scene type from validation_result: {scene_type}")
+                                        else:
+                                            logger.warning("No validation_result available, using default outdoor")
                                         
                                         logger.info(f"Detected scene type: {scene_type}")
                                         

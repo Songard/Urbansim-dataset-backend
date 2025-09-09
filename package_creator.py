@@ -43,6 +43,7 @@ def create_final_package(
         Dict containing success status, package path, and any errors
     """
     logger.info("Creating final processed package")
+    logger.info(f"Scene type parameter received: '{scene_type}'")
     
     try:
         # Create temporary directory for package assembly
