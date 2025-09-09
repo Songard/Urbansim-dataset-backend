@@ -304,6 +304,9 @@ class Config:
     COLMAP_POINTCLOUD_VOXEL_SIZE = float(os.getenv('COLMAP_POINTCLOUD_VOXEL_SIZE', '0.02'))  # 体素下采样大小
     COLMAP_VISUALIZATION_SAMPLE_POINTS = int(os.getenv('COLMAP_VISUALIZATION_SAMPLE_POINTS', '4000'))  # 可视化采样点数
     
+    # COLMAP 输出格式配置
+    COLMAP_OUTPUT_FORMAT = os.getenv('COLMAP_OUTPUT_FORMAT', '.txt')  # '.txt' or '.bin' - 输出格式选择
+    
     # ========================================
     # Hugging Face 上传配置 (Hugging Face Upload Configuration)  
     # ========================================

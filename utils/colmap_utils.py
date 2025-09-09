@@ -23,6 +23,12 @@ import random
 
 from config import Config
 from utils.logger import get_logger
+from utils.read_write_model import (
+    Camera, Image, Point3D,
+    write_cameras_text, write_cameras_binary,
+    write_images_text, write_images_binary, 
+    write_points3D_text, write_points3D_binary
+)
 
 logger = get_logger(__name__)
 
@@ -53,6 +59,7 @@ except ImportError as e:
     logger.warning(f"Point cloud libraries not available: {e}")
     logger.warning("Points3D.txt generation will be disabled")
     HAS_POINTCLOUD_LIBS = False
+
 
 
 def split_frames_by_origin(
@@ -241,6 +248,111 @@ def split_frames_by_origin(
     return train_frames, val_frames, split_info
 
 
+def write_images_file(
+    frames: List[Dict],
+    src_dir: str,
+    sparse_dir: str,
+    images_dir: str,
+    global_trans: np.ndarray,
+    global_rot: np.ndarray,
+    start_id: int = 0,
+    out_name: str = "images",
+    output_format: str = None,
+) -> bool:
+    """
+    Write COLMAP images file and copy corresponding images.
+    
+    Args:
+        frames: List of frame data with transforms and image paths
+        src_dir: Source directory containing original images
+        sparse_dir: Output sparse directory for images file
+        images_dir: Output directory for copied images
+        global_trans: Global transformation matrix
+        global_rot: Global rotation matrix
+        start_id: Starting image ID
+        out_name: Output filename base (images or images_val)
+        output_format: Output format ('.txt' or '.bin'). If None, uses Config.COLMAP_OUTPUT_FORMAT
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        if output_format is None:
+            output_format = Config.COLMAP_OUTPUT_FORMAT
+            
+        images_file = os.path.join(sparse_dir, f"{out_name}{output_format}")
+        logger.info(f"Writing {images_file} with {len(frames)} frames in {output_format} format")
+        
+        # Create COLMAP Image objects
+        images = {}
+        
+        for idx, frame in enumerate(tqdm(frames, desc=f"Processing {out_name}")):
+            img_id = start_id + idx
+            
+            # Apply transformations
+            trans = np.array(frame['transform_matrix'])
+            trans[:3, :3] = trans[:3, :3] @ global_rot
+            trans = global_trans @ trans
+            cam_pose = np.linalg.inv(trans)
+
+            # Extract pose with coordinate system alignment
+            # Apply R_x(-90°) rotation to align coordinate systems
+            Rx_m90 = np.array([[1, 0, 0],
+                               [0, 0, 1],
+                               [0,-1, 0]], dtype=float)  # R_x(-90°)
+            
+            R_wc_fixed = cam_pose[:3, :3] @ Rx_m90
+            tvec = cam_pose[:3, 3]                      # Translation unchanged
+            
+            q = R.from_matrix(R_wc_fixed).as_quat()     # [x,y,z,w]
+            qvec = np.array([q[3], q[0], q[1], q[2]])   # Convert to COLMAP [w,x,y,z]
+
+            # Process image path and copy file
+            src_name = frame['file_path'].replace('\\', '/')
+            dst_name = src_name.replace('/', '_')
+            
+            # Use correct camera path as per schema
+            src_path = os.path.join(src_dir, 'camera', src_name)
+            
+            try:
+                shutil.copy(src_path, os.path.join(images_dir, dst_name))
+            except FileNotFoundError:
+                logger.error(f"Image file not found: {src_path}")
+                return False
+            except Exception as e:
+                logger.error(f"Failed to copy image {src_path}: {e}")
+                return False
+
+            # Determine camera ID (1=left, 2=right)
+            cam_id = 1 if 'left' in src_name else 2
+            
+            # Create COLMAP Image object
+            images[img_id] = Image(
+                id=img_id,
+                qvec=qvec,
+                tvec=tvec,
+                camera_id=cam_id,
+                name=dst_name,
+                xys=np.empty((0, 2)),  # Empty point observations
+                point3D_ids=np.empty(0, dtype=int)  # Empty point IDs
+            )
+        
+        # Write using appropriate format
+        if output_format == '.txt':
+            write_images_text(images, images_file)
+        elif output_format == '.bin':
+            write_images_binary(images, images_file)
+        else:
+            raise ValueError(f"Unsupported output format: {output_format}")
+        
+        logger.info(f"Successfully wrote {images_file}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to write {out_name}: {e}")
+        return False
+
+
 def write_images_txt(
     frames: List[Dict],
     src_dir: str,
@@ -252,93 +364,31 @@ def write_images_txt(
     out_name: str = "images.txt",
 ) -> bool:
     """
-    Write COLMAP images.txt file and copy corresponding images.
-    
-    Args:
-        frames: List of frame data with transforms and image paths
-        src_dir: Source directory containing original images
-        sparse_dir: Output sparse directory for images.txt
-        images_dir: Output directory for copied images
-        global_trans: Global transformation matrix
-        global_rot: Global rotation matrix
-        start_id: Starting image ID
-        out_name: Output filename (images.txt or images_val.txt)
-        
-    Returns:
-        True if successful, False otherwise
+    Legacy function - Write COLMAP images.txt file.
+    Use write_images_file() for format-configurable output.
     """
-    try:
-        images_txt = os.path.join(sparse_dir, out_name)
-        logger.info(f"Writing {out_name} with {len(frames)} frames")
-        
-        with open(images_txt, "w") as f:
-            for idx, frame in enumerate(tqdm(frames, desc=f"Processing {out_name}")):
-                img_id = start_id + idx
-                
-                # Apply transformations
-                trans = np.array(frame['transform_matrix'])
-                trans[:3, :3] = trans[:3, :3] @ global_rot
-                trans = global_trans @ trans
-                cam_pose = np.linalg.inv(trans)
-
-                # Extract pose with coordinate system alignment
-                # Apply R_x(-90°) rotation to align coordinate systems
-                Rx_m90 = np.array([[1, 0, 0],
-                                   [0, 0, 1],
-                                   [0,-1, 0]], dtype=float)  # R_x(-90°)
-                
-                R_wc_fixed = cam_pose[:3, :3] @ Rx_m90
-                tvec = cam_pose[:3, 3]                      # Translation unchanged
-                
-                q = R.from_matrix(R_wc_fixed).as_quat()     # [x,y,z,w]
-                qvec = [q[3], q[0], q[1], q[2]]             # Convert to COLMAP [w,x,y,z]
-
-                # Process image path and copy file
-                src_name = frame['file_path'].replace('\\', '/')
-                dst_name = src_name.replace('/', '_')
-                
-                # Use correct camera path as per schema
-                # src_name format is like "left/1757025812332602000.jpg" or "right/1757025977217852000.jpg"
-                src_path = os.path.join(src_dir, 'camera', src_name)
-                
-                try:
-                    shutil.copy(src_path, os.path.join(images_dir, dst_name))
-                except FileNotFoundError:
-                    logger.error(f"Image file not found: {src_path}")
-                    return False
-                except Exception as e:
-                    logger.error(f"Failed to copy image {src_path}: {e}")
-                    return False
-
-                # Determine camera ID (1=left, 2=right)
-                cam_id = 1 if 'left' in src_name else 2
-                
-                # Write COLMAP format: IMAGE_ID QW QX QY QZ TX TY TZ CAMERA_ID IMAGE_NAME
-                elems = [img_id] + qvec + tvec.tolist() + [cam_id, dst_name]
-                f.write(" ".join(map(str, elems)) + "\n\n")
-        
-        logger.info(f"Successfully wrote {images_txt}")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Failed to write {out_name}: {e}")
-        return False
+    base_name = out_name.replace('.txt', '')
+    return write_images_file(
+        frames, src_dir, sparse_dir, images_dir, 
+        global_trans, global_rot, start_id, base_name, '.txt'
+    )
 
 
-def write_cameras_txt(frames: List[Dict], sparse_dir: str) -> bool:
+def write_cameras_file(frames: List[Dict], sparse_dir: str, output_format: str = None) -> bool:
     """
-    Write COLMAP cameras.txt file with fisheye camera parameters.
+    Write COLMAP cameras file with fisheye camera parameters.
     
     Args:
         frames: List of frame data containing camera parameters
-        sparse_dir: Output directory for cameras.txt
+        sparse_dir: Output directory for cameras file
+        output_format: Output format ('.txt' or '.bin'). If None, uses Config.COLMAP_OUTPUT_FORMAT
         
     Returns:
         True if successful, False otherwise
     """
     try:
-        cam_file = os.path.join(sparse_dir, 'cameras.txt')
-        logger.info("Writing cameras.txt")
+        if output_format is None:
+            output_format = Config.COLMAP_OUTPUT_FORMAT
         
         # Find left and right camera parameters
         left_cam = right_cam = None
@@ -351,31 +401,66 @@ def write_cameras_txt(frames: List[Dict], sparse_dir: str) -> bool:
             if left_cam and right_cam:
                 break
 
-        with open(cam_file, 'w') as f:
-            # Write left camera (ID=1)
-            if left_cam:
-                f.write(
-                    f"1 OPENCV_FISHEYE {left_cam['w']} {left_cam['h']} "
-                    f"{left_cam['fl_x']} {left_cam['fl_y']} {left_cam['cx']} {left_cam['cy']} "
-                    f"{left_cam['k1']} {left_cam['k2']} {left_cam['k3']} {left_cam['k4']}\n"
-                )
-                logger.info(f"Added left camera: {left_cam['w']}x{left_cam['h']}")
-            
-            # Write right camera (ID=2)  
-            if right_cam:
-                f.write(
-                    f"2 OPENCV_FISHEYE {right_cam['w']} {right_cam['h']} "
-                    f"{right_cam['fl_x']} {right_cam['fl_y']} {right_cam['cx']} {right_cam['cy']} "
-                    f"{right_cam['k1']} {right_cam['k2']} {right_cam['k3']} {right_cam['k4']}\n"
-                )
-                logger.info(f"Added right camera: {right_cam['w']}x{right_cam['h']}")
+        # Create camera objects using COLMAP format
+        cameras = {}
+        
+        # Left camera (ID=1)
+        if left_cam:
+            cameras[1] = Camera(
+                id=1,
+                model="OPENCV_FISHEYE",
+                width=left_cam['w'],
+                height=left_cam['h'],
+                params=np.array([
+                    left_cam['fl_x'], left_cam['fl_y'], 
+                    left_cam['cx'], left_cam['cy'],
+                    left_cam['k1'], left_cam['k2'], 
+                    left_cam['k3'], left_cam['k4']
+                ])
+            )
+            logger.info(f"Added left camera: {left_cam['w']}x{left_cam['h']}")
+        
+        # Right camera (ID=2)
+        if right_cam:
+            cameras[2] = Camera(
+                id=2,
+                model="OPENCV_FISHEYE",
+                width=right_cam['w'],
+                height=right_cam['h'],
+                params=np.array([
+                    right_cam['fl_x'], right_cam['fl_y'], 
+                    right_cam['cx'], right_cam['cy'],
+                    right_cam['k1'], right_cam['k2'], 
+                    right_cam['k3'], right_cam['k4']
+                ])
+            )
+            logger.info(f"Added right camera: {right_cam['w']}x{right_cam['h']}")
+
+        # Write using appropriate format
+        cam_file = os.path.join(sparse_dir, f'cameras{output_format}')
+        logger.info(f"Writing {cam_file} in {output_format} format")
+        
+        if output_format == '.txt':
+            write_cameras_text(cameras, cam_file)
+        elif output_format == '.bin':
+            write_cameras_binary(cameras, cam_file)
+        else:
+            raise ValueError(f"Unsupported output format: {output_format}")
 
         logger.info(f"Successfully wrote {cam_file}")
         return True
         
     except Exception as e:
-        logger.error(f"Failed to write cameras.txt: {e}")
+        logger.error(f"Failed to write cameras file: {e}")
         return False
+
+
+def write_cameras_txt(frames: List[Dict], sparse_dir: str) -> bool:
+    """
+    Legacy function - Write COLMAP cameras.txt file with fisheye camera parameters.
+    Use write_cameras_file() for format-configurable output.
+    """
+    return write_cameras_file(frames, sparse_dir, '.txt')
 
 
 def setup_colmap_directories(output_dir: str) -> Dict[str, str]:
@@ -464,22 +549,22 @@ def generate_colmap_format(
         # Generate COLMAP files
         success = True
         
-        # Write training images.txt
-        if not write_images_txt(
+        # Write training images file
+        if not write_images_file(
             train_frames, original_data_path, dirs["sparse_dir"], dirs["images_dir"],
-            global_trans, global_rot, start_id=0, out_name="images.txt"
+            global_trans, global_rot, start_id=0, out_name="images"
         ):
             success = False
             
-        # Write validation images_val.txt
-        if not write_images_txt(
+        # Write validation images_val file
+        if not write_images_file(
             val_frames, original_data_path, dirs["sparse_dir"], dirs["images_dir"],
-            global_trans, global_rot, start_id=len(train_frames), out_name="images_val.txt"
+            global_trans, global_rot, start_id=len(train_frames), out_name="images_val"
         ):
             success = False
             
-        # Write cameras.txt
-        if not write_cameras_txt(frames, dirs["sparse_dir"]):
+        # Write cameras file
+        if not write_cameras_file(frames, dirs["sparse_dir"]):
             success = False
         
         # Generate points3D.txt from colorized.las if available
@@ -493,12 +578,13 @@ def generate_colmap_format(
                 # Downsample point cloud
                 pcd = downsample_pointcloud(pcd)
                 
-                # Write points3D.txt
-                points3d_path = os.path.join(dirs["sparse_dir"], "points3D.txt")
-                if write_colmap_points3d_txt(pcd, points3d_path):
-                    logger.info("✓ Generated points3D.txt")
+                # Write points3D file
+                points3d_path = os.path.join(dirs["sparse_dir"], "points3D")
+                if write_colmap_points3d_file(pcd, points3d_path):
+                    output_format = Config.COLMAP_OUTPUT_FORMAT
+                    logger.info(f"✓ Generated points3D{output_format}")
                 else:
-                    logger.warning("Failed to generate points3D.txt")
+                    logger.warning("Failed to generate points3D file")
                     success = False
             else:
                 logger.warning("Failed to load point cloud from LAS file")
@@ -532,13 +618,14 @@ def generate_colmap_format(
                 logger.warning("Failed to create alignment visualization")
             
         if success:
+            output_format = Config.COLMAP_OUTPUT_FORMAT
             logger.info("=== COLMAP format generation completed successfully ===")
             logger.info(f"Files created in: {dirs['sparse_dir']}")
-            logger.info("- cameras.txt")
-            logger.info("- images.txt") 
-            logger.info("- images_val.txt")
+            logger.info(f"- cameras{output_format}")
+            logger.info(f"- images{output_format}") 
+            logger.info(f"- images_val{output_format}")
             if pcd is not None:
-                logger.info("- points3D.txt")
+                logger.info(f"- points3D{output_format}")
             logger.info(f"Images copied to: {dirs['images_dir']}")
             if pcd is not None:
                 logger.info(f"Visualization saved: camera_pointcloud_alignment.png")
@@ -641,16 +728,14 @@ def downsample_pointcloud(pcd):
         return pcd
 
 
-def write_colmap_points3d_txt(pcd, output_path: str) -> bool:
+def write_colmap_points3d_file(pcd, output_path: str, output_format: str = None) -> bool:
     """
-    Write point cloud to COLMAP points3D.txt format.
-    
-    COLMAP format:
-    POINT3D_ID X Y Z R G B ERROR TRACK[] as (IMAGE_ID, POINT2D_IDX)
+    Write point cloud to COLMAP points3D file format.
     
     Args:
         pcd: Open3D point cloud
-        output_path: Output path for points3D.txt
+        output_path: Output path base (without extension)
+        output_format: Output format ('.txt' or '.bin'). If None, uses Config.COLMAP_OUTPUT_FORMAT
         
     Returns:
         True if successful, False otherwise
@@ -659,7 +744,11 @@ def write_colmap_points3d_txt(pcd, output_path: str) -> bool:
         return False
         
     try:
-        logger.info(f"Writing COLMAP points3D.txt with {len(pcd.points)} points")
+        if output_format is None:
+            output_format = Config.COLMAP_OUTPUT_FORMAT
+            
+        full_path = f"{output_path}{output_format}"
+        logger.info(f"Writing COLMAP points3D{output_format} with {len(pcd.points)} points")
         
         points = np.asarray(pcd.points)
         colors = np.asarray(pcd.colors)
@@ -667,27 +756,46 @@ def write_colmap_points3d_txt(pcd, output_path: str) -> bool:
         # Convert colors from 0-1 to 0-255 range
         colors_255 = (colors * 255).astype(np.uint8)
         
-        with open(output_path, 'w') as f:
-            # Write header comment
-            f.write("# 3D point list with one line of data per point:\n")
-            f.write("# POINT3D_ID, X, Y, Z, R, G, B, ERROR, TRACK[] as (IMAGE_ID, POINT2D_IDX)\n")
+        # Create COLMAP Point3D objects
+        points3D = {}
+        for i, (pt, col) in enumerate(zip(points, colors_255)):
+            point_id = i + 1  # COLMAP uses 1-based indexing
+            x, y, z = pt
+            r, g, b = col
+            error = 1.0  # Default reprojection error
             
-            for i, (pt, col) in enumerate(zip(points, colors_255)):
-                point_id = i + 1  # COLMAP uses 1-based indexing
-                x, y, z = pt
-                r, g, b = col
-                error = 1.0  # Default reprojection error
-                
-                # No track information available from point cloud alone
-                # Write minimal COLMAP format
-                f.write(f"{point_id} {x:.6f} {y:.6f} {z:.6f} {r} {g} {b} {error:.6f}\n")
+            points3D[point_id] = Point3D(
+                id=point_id,
+                xyz=np.array([x, y, z]),
+                rgb=np.array([r, g, b]),
+                error=error,
+                image_ids=np.empty(0, dtype=int),  # No track information
+                point2D_idxs=np.empty(0, dtype=int)  # No track information
+            )
         
-        logger.info(f"Successfully wrote {output_path}")
+        # Write using appropriate format
+        if output_format == '.txt':
+            write_points3D_text(points3D, full_path)
+        elif output_format == '.bin':
+            write_points3D_binary(points3D, full_path)
+        else:
+            raise ValueError(f"Unsupported output format: {output_format}")
+        
+        logger.info(f"Successfully wrote {full_path}")
         return True
         
     except Exception as e:
-        logger.error(f"Failed to write points3D.txt: {e}")
+        logger.error(f"Failed to write points3D file: {e}")
         return False
+
+
+def write_colmap_points3d_txt(pcd, output_path: str) -> bool:
+    """
+    Legacy function - Write point cloud to COLMAP points3D.txt format.
+    Use write_colmap_points3d_file() for format-configurable output.
+    """
+    base_path = output_path.replace('.txt', '')
+    return write_colmap_points3d_file(pcd, base_path, '.txt')
 
 
 def load_camera_centers(images_txt_path: str, num_samples: int = 500) -> np.ndarray:
