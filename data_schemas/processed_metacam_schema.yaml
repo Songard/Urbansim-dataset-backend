@@ -28,18 +28,8 @@ preserved_files:
     extensions: [".jpg", ".jpeg"]
 
 # 必需的目录（从原始包保留）
-preserved_directories:
-  - path: "camera"
-    description: "相机数据目录（完整保留）"
-    source: "original_package"
-    preserve_structure: true
-    subdirectories:
-      - path: "camera/left"
-        description: "左相机数据"
-        optional: false
-      - path: "camera/right"
-        description: "右相机数据" 
-        optional: false
+# 注意：camera目录已移除，只保留images目录
+preserved_directories: []
 
 # 处理结果文件（从exe输出获取）
 # 输出位置: ./processors/exe_packages/processed/output/{package_name}_output
@@ -147,7 +137,6 @@ validation_requirements:
   # 必须从原始包保留的文件
   required_preserved_files:
     - "metadata.yaml"
-    - "camera/"
     - "Preview.jpg"
 
 # 文件内容验证规则

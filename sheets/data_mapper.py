@@ -475,6 +475,12 @@ class SheetsDataMapper:
                 duration_value = duration_value.strip()
                 if not duration_value:
                     return ''
+                
+                # Check if it's already in MM:SS format
+                if ':' in duration_value:
+                    # Already formatted, return as is
+                    return duration_value
+                
                 duration_seconds = float(duration_value)
             else:
                 duration_seconds = float(duration_value)

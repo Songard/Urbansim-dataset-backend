@@ -281,10 +281,17 @@ def write_images_txt(
                 trans = global_trans @ trans
                 cam_pose = np.linalg.inv(trans)
 
-                # Extract pose
-                tvec = cam_pose[:3, 3]
-                q = R.from_matrix(cam_pose[:3, :3]).as_quat()
-                qvec = [q[3], q[0], q[1], q[2]]  # w,x,y,z format for COLMAP
+                # Extract pose with coordinate system alignment
+                # Apply R_x(-90°) rotation to align coordinate systems
+                Rx_m90 = np.array([[1, 0, 0],
+                                   [0, 0, 1],
+                                   [0,-1, 0]], dtype=float)  # R_x(-90°)
+                
+                R_wc_fixed = cam_pose[:3, :3] @ Rx_m90
+                tvec = cam_pose[:3, 3]                      # Translation unchanged
+                
+                q = R.from_matrix(R_wc_fixed).as_quat()     # [x,y,z,w]
+                qvec = [q[3], q[0], q[1], q[2]]             # Convert to COLMAP [w,x,y,z]
 
                 # Process image path and copy file
                 src_name = frame['file_path'].replace('\\', '/')
