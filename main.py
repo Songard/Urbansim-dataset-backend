@@ -549,6 +549,23 @@ class GoogleDriveMonitorSystem:
                                                 }
                                             )
                                             processing_results['hf_upload_result'] = hf_upload_result
+                                            
+                                            # Check if HuggingFace upload was successful and delete source file if configured
+                                            if (Config.AUTO_DELETE_SOURCE_FILES and 
+                                                hf_upload_result and 
+                                                hf_upload_result.get('success', False) and
+                                                (not Config.DELETE_ONLY_AFTER_HF_SUCCESS or hf_upload_result.get('success', False))):
+                                                
+                                                logger.info("HuggingFace upload successful, attempting to delete source file from Google Drive...")
+                                                delete_success = self.drive_monitor.delete_file(file_id)
+                                                
+                                                if delete_success:
+                                                    logger.success(f"Successfully deleted source file {file_name} from Google Drive")
+                                                    # Add deletion info to processing results for potential logging
+                                                    processing_results['source_file_deleted'] = True
+                                                else:
+                                                    logger.warning(f"Failed to delete source file {file_name} from Google Drive")
+                                                    processing_results['source_file_deleted'] = False
                                         else:
                                             error_msg = package_result.get('error', 'Unknown package creation error')
                                             logger.error(f"Failed to create final package: {error_msg}")
@@ -635,6 +652,9 @@ class GoogleDriveMonitorSystem:
                 except Exception as e:
                     logger.warning(f"移动文件失败: {e}")
             
+            # Final check for source file deletion after all processing
+            self._check_and_delete_source_file(file_id, file_name, processing_results)
+            
             self.stats['files_processed'] += 1
             process_time = (datetime.now() - process_start_time).total_seconds()
             from utils.error_formatter import ErrorFormatter
@@ -656,6 +676,48 @@ class GoogleDriveMonitorSystem:
         finally:
             # 清理临时文件
             self.archive_handler.cleanup_temp_dirs()
+    
+    def _check_and_delete_source_file(self, file_id: str, file_name: str, processing_results: Dict = None):
+        """
+        Check if source file should be deleted based on HuggingFace upload success
+        
+        Args:
+            file_id: Google Drive file ID
+            file_name: File name for logging
+            processing_results: Processing results containing HF upload status
+        """
+        try:
+            # Only proceed if auto-delete is enabled
+            if not Config.AUTO_DELETE_SOURCE_FILES:
+                return
+            
+            # Check if we need to wait for HuggingFace success
+            if Config.DELETE_ONLY_AFTER_HF_SUCCESS:
+                if not processing_results:
+                    logger.debug("No processing results available, skipping source file deletion")
+                    return
+                
+                hf_upload_result = processing_results.get('hf_upload_result')
+                if not hf_upload_result or not hf_upload_result.get('success', False):
+                    logger.info(f"HuggingFace upload not successful, keeping source file: {file_name}")
+                    return
+                
+                # Check if file was already deleted during processing
+                if processing_results.get('source_file_deleted', False):
+                    logger.debug(f"Source file {file_name} already deleted during processing")
+                    return
+            
+            # Attempt to delete the source file
+            logger.info(f"Attempting to delete source file from Google Drive: {file_name}")
+            delete_success = self.drive_monitor.delete_file(file_id)
+            
+            if delete_success:
+                logger.success(f"Successfully deleted source file {file_name} from Google Drive")
+            else:
+                logger.warning(f"Failed to delete source file {file_name} from Google Drive")
+                
+        except Exception as e:
+            logger.error(f"Error in source file deletion check for {file_name}: {e}")
     
     def _upload_to_huggingface(self, package_path: str, file_id: str, scene_type: str, 
                                validation_score: float = None, processing_success: bool = True,

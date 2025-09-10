@@ -346,6 +346,45 @@ class DriveMonitor:
         except Exception as e:
             logger.error(f"Error cleaning up old records: {e}")
     
+    def delete_file(self, file_id: str) -> bool:
+        """
+        删除Google Drive上的文件
+        
+        Args:
+            file_id (str): 要删除的文件ID
+            
+        Returns:
+            bool: 删除是否成功
+        """
+        try:
+            # 检查是否启用了自动删除功能
+            if not Config.AUTO_DELETE_SOURCE_FILES:
+                logger.info(f"Auto-delete disabled, skipping deletion of file {file_id}")
+                return False
+            
+            # 先获取文件信息用于日志记录
+            file_metadata = self.get_file_metadata(file_id)
+            file_name = file_metadata.get('name', 'Unknown') if file_metadata else 'Unknown'
+            
+            logger.info(f"Attempting to delete file: {file_name} (ID: {file_id})")
+            
+            # 执行删除操作
+            self.service.files().delete(fileId=file_id).execute()
+            
+            logger.success(f"Successfully deleted file from Google Drive: {file_name}")
+            return True
+            
+        except HttpError as e:
+            if e.resp.status == 404:
+                logger.warning(f"File {file_id} not found, may have been already deleted")
+                return True  # 文件不存在也算成功
+            else:
+                logger.error(f"HTTP error deleting file {file_id}: {e}")
+                return False
+        except Exception as e:
+            logger.error(f"Error deleting file {file_id}: {e}")
+            return False
+    
     def stop_monitoring(self):
         """停止监控"""
         Config.ENABLE_MONITORING = False

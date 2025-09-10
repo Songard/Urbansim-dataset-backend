@@ -11,6 +11,7 @@ class Config:
     
     SCOPES = [
         'https://www.googleapis.com/auth/drive.readonly',
+        'https://www.googleapis.com/auth/drive.file',  # 添加文件删除权限
         'https://www.googleapis.com/auth/spreadsheets'
     ]
     
@@ -53,6 +54,10 @@ class Config:
     # 清理配置
     KEEP_PROCESSED_DAYS = int(os.getenv('KEEP_PROCESSED_DAYS', '30'))
     CLEAN_TEMP_FILES = os.getenv('CLEAN_TEMP_FILES', 'True').lower() == 'true'
+    
+    # Google Drive 文件删除配置
+    AUTO_DELETE_SOURCE_FILES = os.getenv('AUTO_DELETE_SOURCE_FILES', 'False').lower() == 'true'
+    DELETE_ONLY_AFTER_HF_SUCCESS = os.getenv('DELETE_ONLY_AFTER_HF_SUCCESS', 'True').lower() == 'true'
     
     # 数据存储路径
     PROCESSED_FILES_JSON = os.path.join('data', 'processed_files.json')
@@ -264,7 +269,7 @@ class Config:
     # Metacam CLI 处理配置
     METACAM_CLI_MODE = os.getenv('METACAM_CLI_MODE', '1')  # 0=fast, 1=precision
     METACAM_CLI_COLOR = os.getenv('METACAM_CLI_COLOR', '1')  # 0=No, 1=Yes
-    METACAM_CLI_TIMEOUT_SECONDS = int(os.getenv('METACAM_CLI_TIMEOUT_SECONDS', '7'))  # 2小时超时
+    METACAM_CLI_TIMEOUT_SECONDS = int(os.getenv('METACAM_CLI_TIMEOUT_SECONDS', '7200'))  # 2小时超时
 
     # 场景类型判断阈值（用于自动选择scene参数）
     INDOOR_SCALE_THRESHOLD_M = float(os.getenv('INDOOR_SCALE_THRESHOLD_M', '30'))  # 30米以下认为是narrow场景
@@ -305,7 +310,7 @@ class Config:
     COLMAP_VISUALIZATION_SAMPLE_POINTS = int(os.getenv('COLMAP_VISUALIZATION_SAMPLE_POINTS', '4000'))  # 可视化采样点数
     
     # COLMAP 输出格式配置
-    COLMAP_OUTPUT_FORMAT = os.getenv('COLMAP_OUTPUT_FORMAT', '.txt')  # '.txt' or '.bin' - 输出格式选择
+    COLMAP_OUTPUT_FORMAT = os.getenv('COLMAP_OUTPUT_FORMAT', '.bin')  # '.txt' or '.bin' - 输出格式选择
     
     # 最终打包内容配置
     PACKAGE_INCLUDE_ORIGINAL_FILES = os.getenv('PACKAGE_INCLUDE_ORIGINAL_FILES', 'False').lower() == 'true'  # 是否包含原始文件
