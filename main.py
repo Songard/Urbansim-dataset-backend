@@ -501,6 +501,24 @@ class GoogleDriveMonitorSystem:
                                     if output_files.get('colorized_las') and output_files.get('transforms_json'):
                                         logger.info("Creating final processed package...")
                                         
+                                        # Run image masking before package creation so masked images can be included
+                                        try:
+                                            masking_info = self._run_image_masking(original_extracted_path)
+                                            processing_results['processing_steps'].append({
+                                                'step': 'image_masking',
+                                                'result': masking_info
+                                            })
+                                            if masking_info.get('success'):
+                                                logger.success("Image masking completed successfully")
+                                            else:
+                                                logger.warning(f"Image masking completed with issues: {masking_info}")
+                                        except Exception as e:
+                                            logger.warning(f"Image masking step failed: {e}")
+                                            processing_results['processing_steps'].append({
+                                                'step': 'image_masking',
+                                                'result': {'success': False, 'error': str(e)}
+                                            })
+                                        
                                         # Extract scene type from validation result (use same logic as sheet upload)
                                         scene_type = "outdoor"  # default fallback
                                         
@@ -536,20 +554,6 @@ class GoogleDriveMonitorSystem:
                                             
                                             # Store complete package result including COLMAP info for data_mapper
                                             processing_results['final_package_result'] = package_result
-                                            
-                                            # Run image masking after COLMAP processing (left/right -> filename prefix conversion)
-                                            try:
-                                                masking_info = self._run_image_masking(original_extracted_path)
-                                                processing_results['processing_steps'].append({
-                                                    'step': 'image_masking',
-                                                    'result': masking_info
-                                                })
-                                            except Exception as e:
-                                                logger.warning(f"Image masking step failed: {e}")
-                                                processing_results['processing_steps'].append({
-                                                    'step': 'image_masking',
-                                                    'result': {'success': False, 'error': str(e)}
-                                                })
                                             
                                             # Upload to Hugging Face if enabled
                                             hf_upload_result = self._upload_to_huggingface(
