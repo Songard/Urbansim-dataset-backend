@@ -320,12 +320,16 @@ class Config:
     PACKAGE_INCLUDE_PREVIEW_IMAGE = os.getenv('PACKAGE_INCLUDE_PREVIEW_IMAGE', 'True').lower() == 'true'  # 是否包含预览图
     PACKAGE_INCLUDE_VISUALIZATION = os.getenv('PACKAGE_INCLUDE_VISUALIZATION', 'False').lower() == 'true'  # 是否包含可视化文件
     
+    # 归档配置 (Archive Configuration)
+    ENABLE_ARCHIVE_CREATION = os.getenv('ENABLE_ARCHIVE_CREATION', 'True').lower() == 'true'  # 是否创建完整归档文件
+    ARCHIVE_OUTPUT_PATH = os.getenv('ARCHIVE_OUTPUT_PATH', 'D:/UrbanSim_archive')  # 归档文件保存目录
+    
     # ========================================
     # 图像遮挡（人脸/车牌）处理配置 (Image Masking Configuration)
     # ========================================
     IMAGE_MASKING_ENABLED = os.getenv('IMAGE_MASKING_ENABLED', 'True').lower() == 'true'
-    IMAGE_MASK_FACE_MODEL_PATH = os.getenv('IMAGE_MASK_FACE_MODEL_PATH', '')
-    IMAGE_MASK_LP_MODEL_PATH = os.getenv('IMAGE_MASK_LP_MODEL_PATH', '')
+    IMAGE_MASK_FACE_MODEL_PATH = os.getenv('IMAGE_MASK_FACE_MODEL_PATH', './egoblur/ego_blur_face.jit')
+    IMAGE_MASK_LP_MODEL_PATH = os.getenv('IMAGE_MASK_LP_MODEL_PATH', './egoblur/ego_blur_lp.jit')
     IMAGE_MASK_FACE_MODEL_SCORE_THRESHOLD = float(os.getenv('IMAGE_MASK_FACE_MODEL_SCORE_THRESHOLD', '0.8'))
     IMAGE_MASK_LP_MODEL_SCORE_THRESHOLD = float(os.getenv('IMAGE_MASK_LP_MODEL_SCORE_THRESHOLD', '0.8'))
     IMAGE_MASK_NMS_IOU_THRESHOLD = float(os.getenv('IMAGE_MASK_NMS_IOU_THRESHOLD', '0.3'))
@@ -457,6 +461,7 @@ class Config:
         os.makedirs(cls.PROCESSED_PATH, exist_ok=True)
         os.makedirs(cls.PROCESSING_OUTPUT_PATH, exist_ok=True)
         os.makedirs(cls.PROCESSORS_EXE_PATH, exist_ok=True)
+        os.makedirs(cls.ARCHIVE_OUTPUT_PATH, exist_ok=True)
         os.makedirs(os.path.dirname(cls.LOG_FILE), exist_ok=True)
         os.makedirs('data', exist_ok=True)
         

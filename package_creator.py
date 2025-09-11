@@ -27,7 +27,8 @@ def create_final_package(
     file_id: str = None,
     output_dir: str = "./processed",
     scene_type: str = "outdoor",
-    exclude_unmasked_images: bool = False
+    exclude_unmasked_images: bool = False,
+    processing_output_path: str = None
 ) -> Dict[str, any]:
     """
     Create the final processed package by combining original files with processing outputs
@@ -40,6 +41,7 @@ def create_final_package(
         output_dir: Directory to save the final package (default: ./processed)
         scene_type: Scene type (indoor/outdoor) for subdirectory organization
         exclude_unmasked_images: If True, exclude original unmasked camera/ and undistorted/ directories
+        processing_output_path: Path to processing output directory containing masked images (optional)
         
     Returns:
         Dict containing success status, package path, and any errors
@@ -122,65 +124,101 @@ def create_final_package(
         if exclude_unmasked_images:
             logger.info("Looking for masked image directories...")
             
-            # Look for masked directories in the data folder
+            # Search locations for masked images (original path and processing output path)
+            search_paths = []
+            
+            # Add original path data directories
+            original_path = Path(original_path)
             data_dirs = [d for d in original_path.rglob("data") if d.is_dir()]
-            if data_dirs:
-                data_dir = data_dirs[0]
+            search_paths.extend(data_dirs)
+            
+            # Add processing output path data directories if provided
+            if processing_output_path:
+                processing_path = Path(processing_output_path)
+                if processing_path.exists():
+                    logger.info(f"Also searching for masked images in processing output: {processing_path}")
+                    # Look for data directory in processing output
+                    processing_data_dirs = [d for d in processing_path.rglob("data") if d.is_dir()]
+                    search_paths.extend(processing_data_dirs)
+                    
+                    # Also check if processing output path itself contains image directories
+                    if (processing_path / "fisheye_mask").exists() or (processing_path / "images_mask").exists():
+                        search_paths.append(processing_path)
+            
+            if search_paths:
+                logger.info(f"Searching for masked images in {len(search_paths)} locations")
                 
-                # Copy fisheye masked images (fisheye_mask directory)
-                fisheye_mask_dir = data_dir / "fisheye_mask"
-                if fisheye_mask_dir.exists():
-                    logger.info(f"Found fisheye_mask/ directory at: {fisheye_mask_dir}")
-                    total_files = sum(1 for _ in fisheye_mask_dir.rglob('*') if _.is_file())
-                    logger.info(f"Copying fisheye_mask/ directory ({total_files} files)...")
-                    
-                    start_time = datetime.now()
-                    shutil.copytree(fisheye_mask_dir, temp_package_dir / "fisheye_mask")
-                    end_time = datetime.now()
-                    
-                    duration = (end_time - start_time).total_seconds()
-                    logger.info(f"✓ Copied fisheye_mask/ directory ({total_files} files) in {duration:.1f}s")
+                # Track which directories we've already copied to avoid duplicates
+                copied_dirs = set()
                 
-                # Copy undistorted masked images (images_mask directory)
-                images_mask_dir = data_dir / "images_mask"
-                if images_mask_dir.exists():
-                    logger.info(f"Found images_mask/ directory at: {images_mask_dir}")
-                    total_files = sum(1 for _ in images_mask_dir.rglob('*') if _.is_file())
-                    logger.info(f"Copying images_mask/ directory ({total_files} files)...")
-                    
-                    start_time = datetime.now()
-                    shutil.copytree(images_mask_dir, temp_package_dir / "images_mask")
-                    end_time = datetime.now()
-                    
-                    duration = (end_time - start_time).total_seconds()
-                    logger.info(f"✓ Copied images_mask/ directory ({total_files} files) in {duration:.1f}s")
+                for data_dir in search_paths:
+                    logger.info(f"Checking for masked images in: {data_dir}")
                 
-                # Copy the masked images from fisheye and images directories (these contain the masked versions)
-                fisheye_dir = data_dir / "fisheye"
-                if fisheye_dir.exists():
-                    logger.info(f"Found fisheye/ directory (masked) at: {fisheye_dir}")
-                    total_files = sum(1 for _ in fisheye_dir.rglob('*') if _.is_file())
-                    logger.info(f"Copying fisheye/ directory ({total_files} masked files)...")
+                    # Copy fisheye masked images (fisheye_mask directory)
+                    fisheye_mask_dir = data_dir / "fisheye_mask"
+                    if fisheye_mask_dir.exists() and "fisheye_mask" not in copied_dirs:
+                        logger.info(f"Found fisheye_mask/ directory at: {fisheye_mask_dir}")
+                        total_files = sum(1 for _ in fisheye_mask_dir.rglob('*') if _.is_file())
+                        logger.info(f"Copying fisheye_mask/ directory ({total_files} files)...")
+                        
+                        start_time = datetime.now()
+                        shutil.copytree(fisheye_mask_dir, temp_package_dir / "fisheye_mask")
+                        end_time = datetime.now()
+                        
+                        duration = (end_time - start_time).total_seconds()
+                        logger.info(f"✓ Copied fisheye_mask/ directory ({total_files} files) in {duration:.1f}s")
+                        copied_dirs.add("fisheye_mask")
                     
-                    start_time = datetime.now()
-                    shutil.copytree(fisheye_dir, temp_package_dir / "fisheye")
-                    end_time = datetime.now()
+                    # Copy undistorted masked images (images_mask directory)
+                    images_mask_dir = data_dir / "images_mask"
+                    if images_mask_dir.exists() and "images_mask" not in copied_dirs:
+                        logger.info(f"Found images_mask/ directory at: {images_mask_dir}")
+                        total_files = sum(1 for _ in images_mask_dir.rglob('*') if _.is_file())
+                        logger.info(f"Copying images_mask/ directory ({total_files} files)...")
+                        
+                        start_time = datetime.now()
+                        shutil.copytree(images_mask_dir, temp_package_dir / "images_mask")
+                        end_time = datetime.now()
+                        
+                        duration = (end_time - start_time).total_seconds()
+                        logger.info(f"✓ Copied images_mask/ directory ({total_files} files) in {duration:.1f}s")
+                        copied_dirs.add("images_mask")
                     
-                    duration = (end_time - start_time).total_seconds()
-                    logger.info(f"✓ Copied fisheye/ directory ({total_files} files) in {duration:.1f}s")
+                    # Copy the masked images from fisheye and images directories (these contain the masked versions)
+                    fisheye_dir = data_dir / "fisheye"
+                    if fisheye_dir.exists() and "fisheye" not in copied_dirs:
+                        logger.info(f"Found fisheye/ directory (masked) at: {fisheye_dir}")
+                        total_files = sum(1 for _ in fisheye_dir.rglob('*') if _.is_file())
+                        logger.info(f"Copying fisheye/ directory ({total_files} masked files)...")
+                        
+                        start_time = datetime.now()
+                        shutil.copytree(fisheye_dir, temp_package_dir / "fisheye")
+                        end_time = datetime.now()
+                        
+                        duration = (end_time - start_time).total_seconds()
+                        logger.info(f"✓ Copied fisheye/ directory ({total_files} files) in {duration:.1f}s")
+                        copied_dirs.add("fisheye")
+                    
+                    images_dir = data_dir / "images"
+                    if images_dir.exists() and "images" not in copied_dirs:
+                        logger.info(f"Found images/ directory (masked) at: {images_dir}")
+                        total_files = sum(1 for _ in images_dir.rglob('*') if _.is_file())
+                        logger.info(f"Copying images/ directory ({total_files} masked files)...")
+                        
+                        start_time = datetime.now()
+                        shutil.copytree(images_dir, temp_package_dir / "images")
+                        end_time = datetime.now()
+                        
+                        duration = (end_time - start_time).total_seconds()
+                        logger.info(f"✓ Copied images/ directory ({total_files} files) in {duration:.1f}s")
+                        copied_dirs.add("images")
                 
-                images_dir = data_dir / "images"
-                if images_dir.exists():
-                    logger.info(f"Found images/ directory (masked) at: {images_dir}")
-                    total_files = sum(1 for _ in images_dir.rglob('*') if _.is_file())
-                    logger.info(f"Copying images/ directory ({total_files} masked files)...")
-                    
-                    start_time = datetime.now()
-                    shutil.copytree(images_dir, temp_package_dir / "images")
-                    end_time = datetime.now()
-                    
-                    duration = (end_time - start_time).total_seconds()
-                    logger.info(f"✓ Copied images/ directory ({total_files} files) in {duration:.1f}s")
+                if not copied_dirs:
+                    logger.warning("No masked image directories found in any search location")
+                else:
+                    logger.info(f"Successfully copied masked image directories: {', '.join(copied_dirs)}")
+            else:
+                logger.warning("No data/ directories found for masked images")
                 
         logger.info(f"File copying configuration summary:")
         logger.info(f"  - Include original files: {Config.PACKAGE_INCLUDE_ORIGINAL_FILES}")
@@ -270,9 +308,11 @@ def create_final_package(
         
         # Use file_id for naming without _processed suffix
         if file_id:
+            base_name = file_id
             final_package_name = f"{file_id}.zip"
             logger.info(f"Using Google Drive file ID for package name: {file_id}")
         else:
+            base_name = package_name
             final_package_name = f"{package_name}.zip"
             logger.info(f"Using package name for final package: {package_name}")
         
@@ -283,26 +323,19 @@ def create_final_package(
         # Ensure output directory exists
         final_package_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Count total files to compress for progress tracking
-        all_files = [f for f in temp_package_dir.rglob('*') if f.is_file()]
-        total_files_to_compress = len(all_files)
-        
-        logger.info(f"Compressing final package: {final_package_path}")
-        logger.info(f"Compressing {total_files_to_compress} files... This may take several minutes")
-        
+        # Create the final package with proper folder structure
         compression_start = datetime.now()
+        compression_duration = _create_zip_with_folder_structure(
+            temp_package_dir, final_package_path, base_name, "final package"
+        )
         
-        with zipfile.ZipFile(final_package_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for i, file_path in enumerate(all_files, 1):
-                arcname = file_path.relative_to(temp_package_dir)
-                zipf.write(file_path, arcname)
-                
-                # Log progress every 50 files to avoid spam
-                if i % 50 == 0 or i == total_files_to_compress:
-                    progress_pct = (i / total_files_to_compress) * 100
-                    logger.info(f"Compression progress: {i}/{total_files_to_compress} files ({progress_pct:.1f}%)")
-        
-        compression_duration = (datetime.now() - compression_start).total_seconds()
+        # Create archive package if enabled
+        archive_path = None
+        if Config.ENABLE_ARCHIVE_CREATION:
+            logger.info("Creating archive package with all files (including unmasked images)...")
+            archive_path = _create_archive_package(
+                original_path, output_files, base_name, scene_type, processing_output_path
+            )
         logger.info(f"✓ Compression completed in {compression_duration:.1f}s")
         
         # Get package info
@@ -329,13 +362,20 @@ def create_final_package(
                 'split_quality': split_info.get('split_quality', 'FAILED')
             }
         
-        return {
+        result = {
             'success': True,
             'package_path': str(final_package_path),
             'package_size_mb': package_size_mb,
             'compression_duration': compression_duration,
             'colmap_result': nvs_result_info  # Keep key name for backward compatibility
         }
+        
+        # Add archive path if created
+        if archive_path:
+            result['archive_path'] = archive_path
+            logger.info(f"Archive package also created: {archive_path}")
+        
+        return result
         
     except Exception as e:
         error_msg = f"Failed to create final package: {e}"
@@ -466,3 +506,182 @@ def _verify_final_package(package_path: Path) -> bool:
     except Exception as e:
         logger.error(f"Package verification failed with exception: {e}")
         return False
+
+
+def _create_zip_with_folder_structure(source_dir: Path, zip_path: Path, folder_name: str, package_type: str) -> float:
+    """
+    Create a zip file with proper folder structure (creates a top-level folder when unzipped)
+    
+    Args:
+        source_dir: Source directory containing files to zip
+        zip_path: Output zip file path
+        folder_name: Name of the top-level folder to create in the zip
+        package_type: Type of package for logging (e.g., "final package", "archive package")
+        
+    Returns:
+        Compression duration in seconds
+    """
+    # Count total files to compress for progress tracking
+    all_files = [f for f in source_dir.rglob('*') if f.is_file()]
+    total_files_to_compress = len(all_files)
+    
+    logger.info(f"Compressing {package_type}: {zip_path}")
+    logger.info(f"Compressing {total_files_to_compress} files into folder '{folder_name}'... This may take several minutes")
+    
+    compression_start = datetime.now()
+    
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for i, file_path in enumerate(all_files, 1):
+            # Create archive name with top-level folder
+            relative_path = file_path.relative_to(source_dir)
+            arcname = Path(folder_name) / relative_path
+            zipf.write(file_path, str(arcname))
+            
+            # Log progress every 50 files to avoid spam
+            if i % 50 == 0 or i == total_files_to_compress:
+                progress_pct = (i / total_files_to_compress) * 100
+                logger.info(f"Compression progress: {i}/{total_files_to_compress} files ({progress_pct:.1f}%)")
+    
+    compression_duration = (datetime.now() - compression_start).total_seconds()
+    return compression_duration
+
+
+def _create_archive_package(original_path: str, output_files: Dict[str, str], base_name: str, 
+                           scene_type: str, processing_output_path: str = None) -> Optional[str]:
+    """
+    Create an archive package containing all files including unmasked images
+    
+    Args:
+        original_path: Path to original standardized data directory
+        output_files: Dict with paths to processing output files
+        base_name: Base name for the archive package
+        scene_type: Scene type (indoor/outdoor)
+        processing_output_path: Path to processing output directory
+        
+    Returns:
+        Path to created archive package or None if failed
+    """
+    try:
+        import tempfile
+        
+        # Create temporary directory for archive assembly
+        temp_archive_dir = Path(tempfile.mkdtemp(prefix=f"archive_{base_name}_"))
+        logger.info(f"Assembling archive package in: {temp_archive_dir}")
+        
+        original_path = Path(original_path)
+        
+        # Copy ALL original files (including unmasked images)
+        logger.info("Copying all original files for archive...")
+        
+        # Copy processing output files
+        if output_files.get('colorized_las') and output_files.get('transforms_json'):
+            # Copy point cloud file keeping original filename
+            original_pc_file = Path(output_files['colorized_las'])
+            final_pc_name = original_pc_file.name
+            shutil.copy2(output_files['colorized_las'], temp_archive_dir / final_pc_name)
+            shutil.copy2(output_files['transforms_json'], temp_archive_dir / "transforms.json")
+            logger.info("✓ Copied processing output files to archive")
+        
+        # Copy metadata.yaml
+        metadata_files = list(original_path.rglob("metadata.yaml"))
+        if metadata_files:
+            shutil.copy2(metadata_files[0], temp_archive_dir / "metadata.yaml")
+            logger.info("✓ Copied metadata.yaml to archive")
+        
+        # Copy Preview.jpg
+        preview_files = list(original_path.rglob("Preview.jpg"))
+        if preview_files:
+            shutil.copy2(preview_files[0], temp_archive_dir / "Preview.jpg")
+            logger.info("✓ Copied Preview.jpg to archive")
+        
+        # Copy ALL camera directories (including unmasked images)
+        camera_dirs = [d for d in original_path.rglob("camera") if d.is_dir()]
+        if camera_dirs:
+            camera_dir = camera_dirs[0]
+            total_files = sum(1 for _ in camera_dir.rglob('*') if _.is_file())
+            logger.info(f"Copying complete camera/ directory ({total_files} files)...")
+            
+            start_time = datetime.now()
+            shutil.copytree(camera_dir, temp_archive_dir / "camera")
+            duration = (datetime.now() - start_time).total_seconds()
+            logger.info(f"✓ Copied camera/ directory ({total_files} files) in {duration:.1f}s")
+        
+        # Copy all data directories (both masked and unmasked images)
+        data_dirs = [d for d in original_path.rglob("data") if d.is_dir()]
+        if data_dirs:
+            data_dir = data_dirs[0]
+            logger.info(f"Copying complete data/ directory...")
+            
+            start_time = datetime.now()
+            shutil.copytree(data_dir, temp_archive_dir / "data")
+            duration = (datetime.now() - start_time).total_seconds()
+            logger.info(f"✓ Copied data/ directory in {duration:.1f}s")
+        
+        # Also copy any processed images from processing output path if it exists
+        if processing_output_path:
+            processing_path = Path(processing_output_path)
+            if processing_path.exists():
+                logger.info("Copying processed images from processing output...")
+                
+                # Look for processed data directories
+                processing_data_dirs = [d for d in processing_path.rglob("data") if d.is_dir()]
+                for proc_data_dir in processing_data_dirs:
+                    # Copy any additional processed images
+                    for subdir in proc_data_dir.iterdir():
+                        if subdir.is_dir() and not (temp_archive_dir / "data" / subdir.name).exists():
+                            shutil.copytree(subdir, temp_archive_dir / "data" / subdir.name)
+                            logger.info(f"✓ Copied processed {subdir.name}/ from processing output")
+        
+        # Generate COLMAP format files for archive
+        transforms_json_path = temp_archive_dir / "transforms.json"
+        if transforms_json_path.exists():
+            logger.info("Generating COLMAP format files for archive...")
+            
+            # Find colorized.las file
+            colorized_las_path = None
+            colorized_las_files = list(temp_archive_dir.glob("colorized*.las"))
+            if colorized_las_files:
+                colorized_las_path = str(colorized_las_files[0])
+            elif output_files.get('colorized_las'):
+                colorized_las_path = output_files['colorized_las']
+            
+            nvs_success, split_info = generate_colmap_format(
+                output_dir=str(temp_archive_dir),
+                transforms_json_path=str(transforms_json_path),
+                original_data_path=str(temp_archive_dir),
+                colorized_las_path=colorized_las_path
+            )
+            
+            if nvs_success:
+                logger.info("✓ COLMAP format generation completed for archive")
+            else:
+                logger.warning("COLMAP format generation failed for archive")
+        
+        # Create archive zip file
+        scene_subdir = "outdoor" if scene_type.lower() == "outdoor" else "indoor"
+        archive_output_with_scene = Path(Config.ARCHIVE_OUTPUT_PATH) / scene_subdir
+        archive_output_with_scene.mkdir(parents=True, exist_ok=True)
+        
+        archive_zip_name = f"{base_name}_archive.zip"
+        archive_zip_path = archive_output_with_scene / archive_zip_name
+        
+        # Create archive zip with folder structure
+        compression_duration = _create_zip_with_folder_structure(
+            temp_archive_dir, archive_zip_path, f"{base_name}_archive", "archive package"
+        )
+        
+        # Get archive package info
+        archive_size = archive_zip_path.stat().st_size
+        archive_size_mb = archive_size / (1024 * 1024)
+        
+        # Cleanup temporary directory
+        shutil.rmtree(temp_archive_dir)
+        
+        logger.success(f"Archive package created: {archive_zip_path}")
+        logger.info(f"Archive size: {archive_size_mb:.1f} MB (compressed in {compression_duration:.1f}s)")
+        
+        return str(archive_zip_path)
+        
+    except Exception as e:
+        logger.error(f"Failed to create archive package: {e}")
+        return None

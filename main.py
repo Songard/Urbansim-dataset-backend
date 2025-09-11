@@ -503,7 +503,12 @@ class GoogleDriveMonitorSystem:
                                         
                                         # Run image masking before package creation so masked images can be included
                                         try:
-                                            masking_info = self._run_image_masking(original_extracted_path)
+                                            # Construct the processing output path where MetaCam creates processed images
+                                            package_name = Path(original_extracted_path).name
+                                            processing_output_path = Path(Config.PROCESSING_OUTPUT_PATH) / f"{package_name}_output"
+                                            
+                                            logger.info(f"Running image masking on processing output directory: {processing_output_path}")
+                                            masking_info = self._run_image_masking(str(processing_output_path))
                                             processing_results['processing_steps'].append({
                                                 'step': 'image_masking',
                                                 'result': masking_info
@@ -533,6 +538,7 @@ class GoogleDriveMonitorSystem:
                                         logger.info(f"Detected scene type: {scene_type}")
                                         
                                         # Use the original_extracted_path (未处理的解压路径) for finding original files
+                                        # Pass the processing output path for finding masked images
                                         package_result = create_final_package(
                                             original_path=original_extracted_path,
                                             output_files=output_files,
@@ -540,7 +546,8 @@ class GoogleDriveMonitorSystem:
                                             file_id=file_id,
                                             output_dir="./processed",
                                             scene_type=scene_type,
-                                            exclude_unmasked_images=Config.HF_EXCLUDE_UNMASKED_IMAGES
+                                            exclude_unmasked_images=Config.HF_EXCLUDE_UNMASKED_IMAGES,
+                                            processing_output_path=str(processing_output_path)
                                         )
                                         
                                         if package_result['success']:
