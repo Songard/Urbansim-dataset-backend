@@ -26,7 +26,8 @@ def create_final_package(
     package_name: str, 
     file_id: str = None,
     output_dir: str = "./processed",
-    scene_type: str = "outdoor"
+    scene_type: str = "outdoor",
+    exclude_unmasked_images: bool = False
 ) -> Dict[str, any]:
     """
     Create the final processed package by combining original files with processing outputs
@@ -38,6 +39,7 @@ def create_final_package(
         file_id: Google Drive file ID for package naming (optional)
         output_dir: Directory to save the final package (default: ./processed)
         scene_type: Scene type (indoor/outdoor) for subdirectory organization
+        exclude_unmasked_images: If True, exclude original unmasked camera/ and undistorted/ directories
         
     Returns:
         Dict containing success status, package path, and any errors
@@ -94,8 +96,8 @@ def create_final_package(
             else:
                 logger.warning(f"Preview.jpg not found in: {original_path} (searched recursively)")
         
-        # Copy camera directory (if enabled)
-        if Config.PACKAGE_INCLUDE_CAMERA_IMAGES:
+        # Copy camera directory (if enabled and not excluding unmasked images)
+        if Config.PACKAGE_INCLUDE_CAMERA_IMAGES and not exclude_unmasked_images:
             logger.info("Looking for camera directory...")
             camera_dirs = [d for d in original_path.rglob("camera") if d.is_dir()]
             if camera_dirs:
@@ -113,6 +115,72 @@ def create_final_package(
                 logger.info(f"✓ Copied camera/ directory ({total_files} files) in {duration:.1f}s")
             else:
                 logger.warning(f"camera/ directory not found in: {original_path} (searched recursively)")
+        elif Config.PACKAGE_INCLUDE_CAMERA_IMAGES and exclude_unmasked_images:
+            logger.info("Skipping camera/ directory (unmasked images excluded)")
+        
+        # Copy masked image directories (if they exist and we're excluding unmasked images)
+        if exclude_unmasked_images:
+            logger.info("Looking for masked image directories...")
+            
+            # Look for masked directories in the data folder
+            data_dirs = [d for d in original_path.rglob("data") if d.is_dir()]
+            if data_dirs:
+                data_dir = data_dirs[0]
+                
+                # Copy fisheye masked images (fisheye_mask directory)
+                fisheye_mask_dir = data_dir / "fisheye_mask"
+                if fisheye_mask_dir.exists():
+                    logger.info(f"Found fisheye_mask/ directory at: {fisheye_mask_dir}")
+                    total_files = sum(1 for _ in fisheye_mask_dir.rglob('*') if _.is_file())
+                    logger.info(f"Copying fisheye_mask/ directory ({total_files} files)...")
+                    
+                    start_time = datetime.now()
+                    shutil.copytree(fisheye_mask_dir, temp_package_dir / "fisheye_mask")
+                    end_time = datetime.now()
+                    
+                    duration = (end_time - start_time).total_seconds()
+                    logger.info(f"✓ Copied fisheye_mask/ directory ({total_files} files) in {duration:.1f}s")
+                
+                # Copy undistorted masked images (images_mask directory)
+                images_mask_dir = data_dir / "images_mask"
+                if images_mask_dir.exists():
+                    logger.info(f"Found images_mask/ directory at: {images_mask_dir}")
+                    total_files = sum(1 for _ in images_mask_dir.rglob('*') if _.is_file())
+                    logger.info(f"Copying images_mask/ directory ({total_files} files)...")
+                    
+                    start_time = datetime.now()
+                    shutil.copytree(images_mask_dir, temp_package_dir / "images_mask")
+                    end_time = datetime.now()
+                    
+                    duration = (end_time - start_time).total_seconds()
+                    logger.info(f"✓ Copied images_mask/ directory ({total_files} files) in {duration:.1f}s")
+                
+                # Copy the masked images from fisheye and images directories (these contain the masked versions)
+                fisheye_dir = data_dir / "fisheye"
+                if fisheye_dir.exists():
+                    logger.info(f"Found fisheye/ directory (masked) at: {fisheye_dir}")
+                    total_files = sum(1 for _ in fisheye_dir.rglob('*') if _.is_file())
+                    logger.info(f"Copying fisheye/ directory ({total_files} masked files)...")
+                    
+                    start_time = datetime.now()
+                    shutil.copytree(fisheye_dir, temp_package_dir / "fisheye")
+                    end_time = datetime.now()
+                    
+                    duration = (end_time - start_time).total_seconds()
+                    logger.info(f"✓ Copied fisheye/ directory ({total_files} files) in {duration:.1f}s")
+                
+                images_dir = data_dir / "images"
+                if images_dir.exists():
+                    logger.info(f"Found images/ directory (masked) at: {images_dir}")
+                    total_files = sum(1 for _ in images_dir.rglob('*') if _.is_file())
+                    logger.info(f"Copying images/ directory ({total_files} masked files)...")
+                    
+                    start_time = datetime.now()
+                    shutil.copytree(images_dir, temp_package_dir / "images")
+                    end_time = datetime.now()
+                    
+                    duration = (end_time - start_time).total_seconds()
+                    logger.info(f"✓ Copied images/ directory ({total_files} files) in {duration:.1f}s")
                 
         logger.info(f"File copying configuration summary:")
         logger.info(f"  - Include original files: {Config.PACKAGE_INCLUDE_ORIGINAL_FILES}")
@@ -121,6 +189,7 @@ def create_final_package(
         logger.info(f"  - Include camera images: {Config.PACKAGE_INCLUDE_CAMERA_IMAGES}")
         logger.info(f"  - Include preview image: {Config.PACKAGE_INCLUDE_PREVIEW_IMAGE}")
         logger.info(f"  - Include visualization: {Config.PACKAGE_INCLUDE_VISUALIZATION}")
+        logger.info(f"  - Exclude unmasked images: {exclude_unmasked_images}")
         
         # Generate COLMAP format files if enabled
         colmap_success = False
@@ -151,25 +220,25 @@ def create_final_package(
                     colorized_las_path = output_files['colorized_las']
                     logger.info(f"Using point cloud file from processing outputs: {Path(colorized_las_path).name}")
                 else:
-                    logger.info("No colorized.las file found, will generate COLMAP files without points3D.txt")
+                    logger.info("No colorized.las file found, will generate NVS split files only")
                 
-                # Ensure camera directory is available for COLMAP generation
+                # Ensure camera directory is available for NVS generation
                 if not (temp_package_dir / "camera").exists():
-                    logger.info("Camera directory not in package, copying for COLMAP generation...")
+                    logger.info("Camera directory not in package, copying for NVS generation...")
                     camera_dirs = [d for d in Path(original_path).rglob("camera") if d.is_dir()]
                     if camera_dirs:
                         shutil.copytree(camera_dirs[0], temp_package_dir / "camera")
-                        logger.info("✓ Temporary camera directory copied for COLMAP")
+                        logger.info("✓ Temporary camera directory copied for NVS")
                 
-                colmap_success, split_info = generate_colmap_format(
+                nvs_success, split_info = generate_colmap_format(
                     output_dir=str(temp_package_dir),
                     transforms_json_path=str(transforms_json_path),
                     original_data_path=str(temp_package_dir),  # Use temp_package_dir where camera/ is available
                     colorized_las_path=colorized_las_path
                 )
                 
-                if colmap_success:
-                    logger.info("✓ COLMAP format generation completed")
+                if nvs_success:
+                    logger.info("✓ NVS format generation completed")
                     logger.info(f"Train/Val split: {split_info['train_count']}/{split_info['val_count']} ({split_info['split_quality']})")
                     
                     # Clean up temporary files if they weren't supposed to be included
@@ -177,7 +246,7 @@ def create_final_package(
                         (temp_package_dir / "transforms.json").unlink()
                         logger.info("Removed temporary transforms.json")
                     
-                    if not Config.PACKAGE_INCLUDE_CAMERA_IMAGES and (temp_package_dir / "camera").exists():
+                    if (not Config.PACKAGE_INCLUDE_CAMERA_IMAGES or exclude_unmasked_images) and (temp_package_dir / "camera").exists():
                         shutil.rmtree(temp_package_dir / "camera")
                         logger.info("Removed temporary camera/ directory")
                         
@@ -189,11 +258,11 @@ def create_final_package(
                             logger.info("Removed visualization file (not enabled in config)")
                         
                 else:
-                    logger.warning("COLMAP format generation failed, continuing without COLMAP files")
+                    logger.warning("NVS format generation failed, continuing without NVS files")
             else:
-                logger.warning("transforms.json not found, skipping COLMAP format generation")
+                logger.warning("transforms.json not found, skipping NVS format generation")
         else:
-            logger.info("COLMAP files disabled in configuration, skipping generation")
+            logger.info("NVS files disabled in configuration, skipping generation")
         
         # Create scene-specific subdirectory and file naming
         scene_subdir = "outdoor" if scene_type.lower() == "outdoor" else "indoor"
@@ -251,10 +320,10 @@ def create_final_package(
         if not verification_result:
             logger.warning("Package verification failed, but package was created")
         
-        # Prepare COLMAP result info for metadata
-        colmap_result_info = {}
-        if 'colmap_success' in locals() and colmap_success and split_info:
-            colmap_result_info = {
+        # Prepare NVS result info for metadata
+        nvs_result_info = {}
+        if 'nvs_success' in locals() and nvs_success and split_info:
+            nvs_result_info = {
                 'train_count': split_info.get('train_count', 0),
                 'val_count': split_info.get('val_count', 0), 
                 'split_quality': split_info.get('split_quality', 'FAILED')
@@ -265,7 +334,7 @@ def create_final_package(
             'package_path': str(final_package_path),
             'package_size_mb': package_size_mb,
             'compression_duration': compression_duration,
-            'colmap_result': colmap_result_info
+            'colmap_result': nvs_result_info  # Keep key name for backward compatibility
         }
         
     except Exception as e:

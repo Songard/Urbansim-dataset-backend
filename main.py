@@ -3,9 +3,11 @@ import sys
 import argparse
 import signal
 import time
+import subprocess
+import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 from config import Config
 from utils.logger import get_logger, log_system_startup, log_system_shutdown, log_error_with_context
@@ -519,7 +521,8 @@ class GoogleDriveMonitorSystem:
                                             package_name=Path(original_extracted_path).name,
                                             file_id=file_id,
                                             output_dir="./processed",
-                                            scene_type=scene_type
+                                            scene_type=scene_type,
+                                            exclude_unmasked_images=Config.HF_EXCLUDE_UNMASKED_IMAGES
                                         )
                                         
                                         if package_result['success']:
@@ -533,6 +536,20 @@ class GoogleDriveMonitorSystem:
                                             
                                             # Store complete package result including COLMAP info for data_mapper
                                             processing_results['final_package_result'] = package_result
+                                            
+                                            # Run image masking after COLMAP processing (left/right -> filename prefix conversion)
+                                            try:
+                                                masking_info = self._run_image_masking(original_extracted_path)
+                                                processing_results['processing_steps'].append({
+                                                    'step': 'image_masking',
+                                                    'result': masking_info
+                                                })
+                                            except Exception as e:
+                                                logger.warning(f"Image masking step failed: {e}")
+                                                processing_results['processing_steps'].append({
+                                                    'step': 'image_masking',
+                                                    'result': {'success': False, 'error': str(e)}
+                                                })
                                             
                                             # Upload to Hugging Face if enabled
                                             hf_upload_result = self._upload_to_huggingface(
@@ -719,6 +736,108 @@ class GoogleDriveMonitorSystem:
         except Exception as e:
             logger.error(f"Error in source file deletion check for {file_name}: {e}")
     
+    def _run_image_masking(self, data_path: str) -> Dict[str, Any]:
+        """
+        Run image masking script for both fisheye (images) and undistorted image folders.
+        - Uses processors/image_masker.py via subprocess
+        - Reads model paths and thresholds from Config
+        - Saves outputs with new naming scheme: fisheye/fisheye_mask and images/images_mask
+        """
+        details: Dict[str, Any] = {
+            'success': True,
+            'runs': []
+        }
+        try:
+            if not Config.IMAGE_MASKING_ENABLED:
+                details['success'] = False
+                details['skipped'] = True
+                details['reason'] = 'IMAGE_MASKING_ENABLED is False'
+                logger.info('Image masking skipped by configuration')
+                return details
+            
+            script_path = Path(__file__).resolve().parent / 'processors' / 'image_masker.py'
+            if not script_path.exists():
+                raise FileNotFoundError(f"image_masker.py not found at {script_path}")
+
+            data_dir = Path(data_path) / 'data'
+            if not data_dir.exists():
+                raise FileNotFoundError(f"Data directory not found: {data_dir}")
+
+            # Look for specific directories: "images" (fisheye) and "undistorted"
+            candidates: List[Tuple[str, Path, str, str]] = []
+            
+            # Check for fisheye images directory
+            fisheye_dir = data_dir / Config.IMAGE_MASK_FISHEYE_DIR_NAME
+            if fisheye_dir.exists() and fisheye_dir.is_dir():
+                candidates.append(("fisheye", fisheye_dir, "fisheye", "fisheye_mask"))
+            
+            # Check for undistorted images directory  
+            undistorted_dir = data_dir / Config.IMAGE_MASK_UNDISTORTED_DIR_NAME
+            if undistorted_dir.exists() and undistorted_dir.is_dir():
+                candidates.append(("undistorted", undistorted_dir, "images", "images_mask"))
+
+            if not candidates:
+                logger.warning('No candidate image directories found for masking (images/ or undistorted/)')
+                return {'success': False, 'runs': [], 'error': 'no_image_dirs'}
+
+            # Process each candidate directory
+            for label, src_dir, output_dir_name, mask_dir_name in candidates:
+                # Create output directories with new naming scheme
+                output_dir = data_dir / output_dir_name
+                mask_dir = data_dir / mask_dir_name
+                output_dir.mkdir(parents=True, exist_ok=True)
+                mask_dir.mkdir(parents=True, exist_ok=True)
+                
+                cmd: List[str] = [
+                    sys.executable,
+                    str(script_path),
+                    '--input_dir', str(src_dir.resolve()),
+                    '--output_dir', str(output_dir.resolve()),
+                    '--mask_dir', str(mask_dir.resolve()),
+                    '--face_model_score_threshold', str(Config.IMAGE_MASK_FACE_MODEL_SCORE_THRESHOLD),
+                    '--lp_model_score_threshold', str(Config.IMAGE_MASK_LP_MODEL_SCORE_THRESHOLD),
+                    '--nms_iou_threshold', str(Config.IMAGE_MASK_NMS_IOU_THRESHOLD),
+                    '--scale_factor_detections', str(Config.IMAGE_MASK_SCALE_FACTOR_DETECTIONS)
+                ]
+                # Optional model paths
+                if Config.IMAGE_MASK_FACE_MODEL_PATH:
+                    cmd += ['--face_model_path', Config.IMAGE_MASK_FACE_MODEL_PATH]
+                if Config.IMAGE_MASK_LP_MODEL_PATH:
+                    cmd += ['--lp_model_path', Config.IMAGE_MASK_LP_MODEL_PATH]
+
+                cmd_str = ' '.join([f'"{c}"' if ' ' in str(c) else str(c) for c in cmd])
+                logger.info(f"Running image_masker for {label}: {cmd_str}")
+
+                start_time = time.time()
+                proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                duration = time.time() - start_time
+                
+                run_result = {
+                    'label': label,
+                    'input': str(src_dir),
+                    'output_images': str(output_dir),
+                    'output_masks': str(mask_dir),
+                    'returncode': proc.returncode,
+                    'duration_sec': duration,
+                    'stdout_tail': '\n'.join(proc.stdout.splitlines()[-30:]) if proc.stdout else '',
+                    'stderr_tail': '\n'.join(proc.stderr.splitlines()[-30:]) if proc.stderr else ''
+                }
+                if proc.returncode != 0:
+                    details['success'] = False
+                    run_result['success'] = False
+                    logger.warning(f"image_masker failed for {label} (code {proc.returncode})")
+                else:
+                    run_result['success'] = True
+                    logger.info(f"image_masker completed for {label} in {duration:.1f}s")
+                    logger.info(f"  - Masked images saved to: {output_dir}")
+                    logger.info(f"  - Masks saved to: {mask_dir}")
+                details['runs'].append(run_result)
+
+            return details
+        except Exception as e:
+            logger.error(f"Error during image masking: {e}")
+            return {'success': False, 'error': str(e), 'runs': details.get('runs', [])}
+
     def _upload_to_huggingface(self, package_path: str, file_id: str, scene_type: str, 
                                validation_score: float = None, processing_success: bool = True,
                                metadata: Dict[str, Any] = None) -> Dict[str, Any]:

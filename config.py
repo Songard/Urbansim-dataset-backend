@@ -321,6 +321,22 @@ class Config:
     PACKAGE_INCLUDE_VISUALIZATION = os.getenv('PACKAGE_INCLUDE_VISUALIZATION', 'False').lower() == 'true'  # 是否包含可视化文件
     
     # ========================================
+    # 图像遮挡（人脸/车牌）处理配置 (Image Masking Configuration)
+    # ========================================
+    IMAGE_MASKING_ENABLED = os.getenv('IMAGE_MASKING_ENABLED', 'True').lower() == 'true'
+    IMAGE_MASK_FACE_MODEL_PATH = os.getenv('IMAGE_MASK_FACE_MODEL_PATH', '')
+    IMAGE_MASK_LP_MODEL_PATH = os.getenv('IMAGE_MASK_LP_MODEL_PATH', '')
+    IMAGE_MASK_FACE_MODEL_SCORE_THRESHOLD = float(os.getenv('IMAGE_MASK_FACE_MODEL_SCORE_THRESHOLD', '0.8'))
+    IMAGE_MASK_LP_MODEL_SCORE_THRESHOLD = float(os.getenv('IMAGE_MASK_LP_MODEL_SCORE_THRESHOLD', '0.8'))
+    IMAGE_MASK_NMS_IOU_THRESHOLD = float(os.getenv('IMAGE_MASK_NMS_IOU_THRESHOLD', '0.3'))
+    IMAGE_MASK_SCALE_FACTOR_DETECTIONS = float(os.getenv('IMAGE_MASK_SCALE_FACTOR_DETECTIONS', '1.05'))
+    # 可识别为原始鱼眼与去畸变图像所在目录名（在数据包 data/ 目录下的子目录名）
+    # 原始鱼眼图像目录名（通常是 "images"）
+    IMAGE_MASK_FISHEYE_DIR_NAME = os.getenv('IMAGE_MASK_FISHEYE_DIR_NAME', 'images')
+    # 去畸变图像目录名（通常是 "undistorted"）
+    IMAGE_MASK_UNDISTORTED_DIR_NAME = os.getenv('IMAGE_MASK_UNDISTORTED_DIR_NAME', 'undistorted')
+
+    # ========================================
     # Hugging Face 上传配置 (Hugging Face Upload Configuration)  
     # ========================================
     
@@ -345,6 +361,7 @@ class Config:
     HF_UPLOAD_ALL_RESULTS = os.getenv('HF_UPLOAD_ALL_RESULTS', 'True').lower() == 'true'  # 是否上传所有结果
     HF_MIN_VALIDATION_SCORE = float(os.getenv('HF_MIN_VALIDATION_SCORE', '60.0'))  # 最小验证分数要求
     HF_EXCLUDE_FAILED_PROCESSING = os.getenv('HF_EXCLUDE_FAILED_PROCESSING', 'False').lower() == 'true'  # 是否排除处理失败的文件
+    HF_EXCLUDE_UNMASKED_IMAGES = os.getenv('HF_EXCLUDE_UNMASKED_IMAGES', 'True').lower() == 'true'  # 是否排除未遮挡的原始图像(camera/和undistorted/)
     
     # 获取场景特定阈值的辅助方法
     @classmethod
