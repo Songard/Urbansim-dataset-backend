@@ -501,38 +501,16 @@ class GoogleDriveMonitorSystem:
                                     if output_files.get('colorized_las') and output_files.get('transforms_json'):
                                         logger.info("Creating final processed package...")
                                         
-                                        # Run image masking before package creation so masked images can be included
-                                        try:
-                                            # Get the actual processing output directory from the output files
-                                            processing_output_path = None
-                                            if output_files.get('colorized_las'):
-                                                # Extract the directory containing the output files
-                                                colorized_las_path = Path(output_files['colorized_las'])
-                                                processing_output_path = colorized_las_path.parent
-                                                logger.info(f"Detected processing output directory from colorized.las: {processing_output_path}")
-                                            elif output_files.get('transforms_json'):
-                                                # Fallback to transforms.json directory
-                                                transforms_path = Path(output_files['transforms_json'])
-                                                processing_output_path = transforms_path.parent
-                                                logger.info(f"Detected processing output directory from transforms.json: {processing_output_path}")
-                                            
-                                            # Run image masking on the original extracted path (where images/ directory is located)
-                                            logger.info(f"Running image masking on original extracted path: {original_extracted_path}")
-                                            masking_info = self._run_image_masking(str(original_extracted_path))
-                                            processing_results['processing_steps'].append({
-                                                'step': 'image_masking',
-                                                'result': masking_info
-                                            })
-                                            if masking_info.get('success'):
-                                                logger.success("Image masking completed successfully")
-                                            else:
-                                                logger.warning(f"Image masking completed with issues: {masking_info}")
-                                        except Exception as e:
-                                            logger.warning(f"Image masking step failed: {e}")
-                                            processing_results['processing_steps'].append({
-                                                'step': 'image_masking',
-                                                'result': {'success': False, 'error': str(e)}
-                                            })
+                                        # Determine processing output directory from output files for later use
+                                        processing_output_path = None
+                                        if output_files.get('colorized_las'):
+                                            colorized_las_path = Path(output_files['colorized_las'])
+                                            processing_output_path = colorized_las_path.parent
+                                            logger.info(f"Detected processing output directory from colorized.las: {processing_output_path}")
+                                        elif output_files.get('transforms_json'):
+                                            transforms_path = Path(output_files['transforms_json'])
+                                            processing_output_path = transforms_path.parent
+                                            logger.info(f"Detected processing output directory from transforms.json: {processing_output_path}")
                                         
                                         # Extract scene type from validation result (use same logic as sheet upload)
                                         scene_type = "outdoor"  # default fallback
@@ -786,7 +764,7 @@ class GoogleDriveMonitorSystem:
             logger.info(f"Running image masking in: {base_path}")
 
             # Check for images directory in parent (since data_path points to 'data' subdirectory)
-            parent_path = base_path.parent
+            parent_path = base_path
             images_dir = parent_path / 'images'
             if images_dir.exists() and images_dir.is_dir():
                 logger.info(f"Found images directory: {images_dir}")
