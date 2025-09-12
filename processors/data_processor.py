@@ -221,15 +221,15 @@ class DataProcessor:
             
             logger.info("validation_generator completed successfully")
             
-            # Step 2: Run metacam_cli.exe on the standardized parent directory
-            step2_result = self._run_metacam_cli_direct(standardized_path, validation_result)
+            # Step 2: Run metacam_cli.exe on the standardized parent directory (with retry)
+            step2_result = self._run_metacam_cli_with_retry(standardized_path, validation_result)
             processing_results['processing_steps'].append({
                 'step': 'metacam_cli',
                 'result': step2_result.to_dict()
             })
             
             if not step2_result.success:
-                error_msg = f"metacam_cli failed: {step2_result.error}"
+                error_msg = f"metacam_cli failed after {Config.PROCESSING_RETRY_ATTEMPTS} attempts: {step2_result.error}"
                 processing_results['errors'].append(error_msg)
                 logger.error(error_msg)
                 logger.warning("metacam_cli failed, but continuing with post-processing to check for any output files...")
@@ -981,6 +981,49 @@ class DataProcessor:
         extension = file_path.suffix.lower()
         return extension in data_extensions
     
+    
+    def _run_metacam_cli_with_retry(self, standardized_path: str, validation_result: Dict) -> ProcessingResult:
+        """
+        Run metacam_cli with retry mechanism for failed results
+        
+        Args:
+            standardized_path: Path to directory that already contains 'data' subdirectory
+            validation_result: Validation result containing scene and scale information
+            
+        Returns:
+            ProcessingResult with execution details (includes retry information)
+        """
+        max_attempts = Config.PROCESSING_RETRY_ATTEMPTS
+        last_result = None
+        
+        for attempt in range(1, max_attempts + 1):
+            logger.info(f"metacam_cli attempt {attempt}/{max_attempts}")
+            
+            # Run metacam_cli
+            result = self._run_metacam_cli_direct(standardized_path, validation_result)
+            
+            if result.success:
+                if attempt > 1:
+                    logger.info(f"metacam_cli succeeded on attempt {attempt}")
+                return result
+            else:
+                last_result = result
+                logger.warning(f"metacam_cli attempt {attempt} failed: {result.error}")
+                
+                if attempt < max_attempts:
+                    logger.info(f"Retrying metacam_cli (attempt {attempt + 1}/{max_attempts})...")
+                else:
+                    logger.error(f"metacam_cli failed after {max_attempts} attempts")
+        
+        # Return the last failed result with retry information
+        if last_result:
+            last_result.error = f"Failed after {max_attempts} attempts. Last error: {last_result.error}"
+        
+        return last_result or ProcessingResult(
+            success=False,
+            command="metacam_cli (retry)",
+            error=f"Failed after {max_attempts} attempts - no result available"
+        )
     
     def _run_metacam_cli_direct(self, standardized_path: str, validation_result: Dict) -> ProcessingResult:
         """

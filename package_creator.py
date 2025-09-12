@@ -313,8 +313,7 @@ def create_final_package(
                                         '--face_model_score_threshold', str(Config.IMAGE_MASK_FACE_MODEL_SCORE_THRESHOLD),
                                         '--lp_model_score_threshold', str(Config.IMAGE_MASK_LP_MODEL_SCORE_THRESHOLD),
                                         '--nms_iou_threshold', str(Config.IMAGE_MASK_NMS_IOU_THRESHOLD),
-                                        '--scale_factor_detections', str(Config.IMAGE_MASK_SCALE_FACTOR_DETECTIONS),
-                                        '--show_progress'
+                                        '--scale_factor_detections', str(Config.IMAGE_MASK_SCALE_FACTOR_DETECTIONS)
                                     ]
                                     if getattr(Config, 'IMAGE_MASK_FACE_MODEL_PATH', None):
                                         cmd += ['--face_model_path', Config.IMAGE_MASK_FACE_MODEL_PATH]
