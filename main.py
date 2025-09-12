@@ -785,13 +785,14 @@ class GoogleDriveMonitorSystem:
             base_path = Path(data_path)
             logger.info(f"Running image masking in: {base_path}")
 
-            # Check for images directory
-            images_dir = base_path / 'images'
+            # Check for images directory in parent (since data_path points to 'data' subdirectory)
+            parent_path = base_path.parent
+            images_dir = parent_path / 'images'
             if images_dir.exists() and images_dir.is_dir():
                 logger.info(f"Found images directory: {images_dir}")
                 # Create output directories in the same location as images directory
-                fisheye_output_dir = base_path / "fisheye"
-                fisheye_mask_dir = base_path / "fisheye_mask"
+                fisheye_output_dir = parent_path / "fisheye"
+                fisheye_mask_dir = parent_path / "fisheye_mask"
                 fisheye_output_dir.mkdir(parents=True, exist_ok=True)
                 fisheye_mask_dir.mkdir(parents=True, exist_ok=True)
                 
@@ -800,8 +801,8 @@ class GoogleDriveMonitorSystem:
             
             # Check if we processed any directories
             if not details['runs']:
-                logger.warning(f'No images directory found for masking in {base_path}')
-                logger.warning('Expected: data/images/ or images/')
+                logger.warning(f'No images directory found for masking in {parent_path}')
+                logger.warning('Expected: images/ directory in parent of data/')
                 return {'success': False, 'runs': [], 'error': 'no_image_dirs'}
 
             return details
