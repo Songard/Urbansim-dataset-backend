@@ -28,9 +28,7 @@ This stage validates the fundamental structure and files of MetaCam data package
 #### 1.1 Directory Structure Validation
 
 **Required Directories** (per `metacam_schema.yaml`):
-- `camera/` - Camera data directory
-  - `camera/left/` - Left camera image sequence
-  - `camera/right/` - Right camera image sequence  
+- `images/` - Camera image data directory
 - `data/` - Raw sensor data directory
 - `info/` - Device information and configuration directory
 

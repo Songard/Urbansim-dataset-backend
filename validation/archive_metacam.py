@@ -1,8 +1,9 @@
 """
-MetaCam Data Package Validator
+Archive MetaCam Data Package Validator
 
-Specialized validator for MetaCam 3D reconstruction data packages.
-Implements the base validator interface with MetaCam-specific logic.
+Specialized validator for archive MetaCam data packages.
+Validates that archive packages contain all original package files except camera directory,
+and include the new images, fisheye, and fisheye_mask directories.
 """
 
 import os
@@ -11,24 +12,25 @@ import yaml
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
 
 from .base import BaseValidator, ValidationResult, ValidationLevel
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-class MetaCamValidator(BaseValidator):
+class ArchiveMetaCamValidator(BaseValidator):
     """
-    Validator for MetaCam data packages.
+    Validator for Archive MetaCam data packages.
     
-    Validates the structure, files, and content of MetaCam
-    3D reconstruction data packages according to the schema.
+    Validates that archive packages contain:
+    1. All original package files except camera directory
+    2. New archive directories: images, fisheye, fisheye_mask
+    3. Proper file structure and content validation
     """
     
     def __init__(self, schema_file: str = None):
         """
-        Initialize MetaCam validator
+        Initialize Archive MetaCam validator
         
         Args:
             schema_file: Path to schema file (optional)
@@ -36,7 +38,7 @@ class MetaCamValidator(BaseValidator):
         super().__init__()
         self.schema_file = schema_file or self._get_default_schema_file()
         self.schema = None
-        self.validator_type = "MetaCamValidator"
+        self.validator_type = "ArchiveMetaCamValidator"
         
         # Load schema
         if not self.load_schema():
@@ -44,31 +46,31 @@ class MetaCamValidator(BaseValidator):
     
     def get_supported_formats(self) -> List[str]:
         """Get supported format types"""
-        return ['metacam', 'metacam_3d', 'reconstruction_data']
+        return ['archive_metacam', 'archive_metacam_3d', 'archive_reconstruction_data']
     
     def validate(self, target_path: str, 
                 validation_level: ValidationLevel = ValidationLevel.STANDARD) -> ValidationResult:
         """
-        Validate MetaCam data package
+        Validate Archive MetaCam data package
         
         Args:
-            target_path: Path to the data package directory
+            target_path: Path to the archive data package directory
             validation_level: Validation strictness level
             
         Returns:
             ValidationResult: Complete validation results
         """
-        logger.info(f"Starting MetaCam validation: {target_path} (level: {validation_level.value})")
+        logger.info(f"Starting Archive MetaCam validation: {target_path} (level: {validation_level.value})")
         
         # Find actual root directory (handle wrapper folders)
         actual_root = self._find_actual_root(target_path)
         if not actual_root:
             return self._create_failed_result(
                 validation_level, 
-                ["Unable to find valid MetaCam data root directory"]
+                ["Unable to find valid Archive MetaCam data root directory"]
             )
         
-        logger.info(f"Actual data root: {actual_root}")
+        logger.info(f"Actual archive data root: {actual_root}")
         
         # Initialize validation tracking
         errors = []
@@ -80,8 +82,9 @@ class MetaCamValidator(BaseValidator):
         
         # Perform validation steps
         self._validate_directory_structure(actual_root, errors, warnings, missing_directories)
-        self._validate_required_files(actual_root, errors, warnings, missing_files, file_details)
-        self._validate_optional_files(actual_root, warnings, file_details)
+        self._validate_preserved_files(actual_root, errors, warnings, missing_files, file_details)
+        self._validate_archive_directories(actual_root, errors, warnings, missing_directories)
+        self._validate_excluded_directories(actual_root, errors, warnings)
         
         # Check for extra files (only in non-lenient modes)
         if validation_level != ValidationLevel.LENIENT:
@@ -119,7 +122,7 @@ class MetaCamValidator(BaseValidator):
             }
         )
         
-        logger.info(f"MetaCam validation completed: {summary}")
+        logger.info(f"Archive MetaCam validation completed: {summary}")
         return result
     
     def load_schema(self) -> bool:
@@ -134,27 +137,27 @@ class MetaCamValidator(BaseValidator):
             
             schema_name = self.schema.get('schema_name', 'Unknown')
             schema_version = self.schema.get('schema_version', '1.0')
-            logger.info(f"Loaded schema: {schema_name} v{schema_version}")
+            logger.info(f"Loaded archive schema: {schema_name} v{schema_version}")
             return True
             
         except Exception as e:
-            logger.error(f"Failed to load schema: {e}")
+            logger.error(f"Failed to load archive schema: {e}")
             return False
     
     def _get_default_schema_file(self) -> str:
         """Get default schema file path"""
         current_dir = Path(__file__).parent
-        return str(current_dir.parent / 'data_schemas' / 'metacam_schema.yaml')
+        return str(current_dir.parent / 'data_schemas' / 'archive_metacam_schema.yaml')
     
     def _find_actual_root(self, directory_path: str) -> Optional[str]:
-        """Find the actual MetaCam data root directory"""
+        """Find the actual Archive MetaCam data root directory"""
         directory_path = os.path.abspath(directory_path)
         
-        # Check if current directory contains MetaCam indicators
-        if self._is_metacam_root(directory_path):
+        # Check if current directory contains Archive MetaCam indicators
+        if self._is_archive_metacam_root(directory_path):
             return directory_path
         
-        # Check subdirectories for MetaCam root
+        # Check subdirectories for Archive MetaCam root
         try:
             items = os.listdir(directory_path)
             directories = [item for item in items if os.path.isdir(os.path.join(directory_path, item))]
@@ -162,68 +165,65 @@ class MetaCamValidator(BaseValidator):
             # If only one directory, check if it's the root
             if len(directories) == 1:
                 potential_root = os.path.join(directory_path, directories[0])
-                if self._is_metacam_root(potential_root):
+                if self._is_archive_metacam_root(potential_root):
                     return potential_root
             
             # Check all subdirectories
             for directory in directories:
                 potential_root = os.path.join(directory_path, directory)
-                if self._is_metacam_root(potential_root):
+                if self._is_archive_metacam_root(potential_root):
                     return potential_root
                     
         except Exception as e:
-            logger.error(f"Error searching for root directory: {e}")
+            logger.error(f"Error searching for archive root directory: {e}")
         
         return None
     
-    def _is_metacam_root(self, path: str) -> bool:
-        """Check if path contains MetaCam indicators"""
-        indicators = ['metadata.yaml', 'images', 'data', 'info']
-        found_count = 0
+    def _is_archive_metacam_root(self, path: str) -> bool:
+        """Check if path contains Archive MetaCam indicators"""
+        # Archive MetaCam should have original files + new archive directories
+        original_indicators = ['metadata.yaml', 'data', 'info']
+        archive_indicators = ['images', 'fisheye', 'fisheye_mask']
         
-        for indicator in indicators:
+        found_original = 0
+        found_archive = 0
+        
+        for indicator in original_indicators:
             indicator_path = os.path.join(path, indicator)
             if os.path.exists(indicator_path):
-                found_count += 1
+                found_original += 1
         
-        from config import Config
-        return found_count >= Config.METACAM_MIN_INDICATORS_REQUIRED
+        for indicator in archive_indicators:
+            indicator_path = os.path.join(path, indicator)
+            if os.path.exists(indicator_path):
+                found_archive += 1
+        
+        # Should have most original indicators and at least some archive indicators
+        return found_original >= 2 and found_archive >= 2
     
     def _validate_directory_structure(self, root_path: str, errors: List[str], 
                                     warnings: List[str], missing_directories: List[str]):
         """Validate required directory structure"""
-        required_dirs = self.schema.get('required_directories', [])
+        # Validate preserved directories (from original package)
+        preserved_dirs = self.schema.get('preserved_directories', [])
         
-        for dir_info in required_dirs:
+        for dir_info in preserved_dirs:
             dir_path = os.path.join(root_path, dir_info['path'])
             
             if not os.path.exists(dir_path):
-                error_msg = f"Missing required directory: {dir_info['path']}"
+                error_msg = f"Missing preserved directory: {dir_info['path']}"
                 errors.append(error_msg)
                 missing_directories.append(dir_info['path'])
                 logger.warning(error_msg)
             else:
-                logger.debug(f"Found directory: {dir_info['path']}")
-                
-                # Check subdirectories
-                subdirs = dir_info.get('subdirectories', [])
-                for subdir_info in subdirs:
-                    subdir_path = os.path.join(root_path, subdir_info['path'])
-                    
-                    if not os.path.exists(subdir_path):
-                        if not subdir_info.get('optional', False):
-                            error_msg = f"Missing required subdirectory: {subdir_info['path']}"
-                            errors.append(error_msg)
-                            missing_directories.append(subdir_info['path'])
-                        else:
-                            warnings.append(f"Missing optional subdirectory: {subdir_info['path']}")
+                logger.debug(f"Found preserved directory: {dir_info['path']}")
     
-    def _validate_required_files(self, root_path: str, errors: List[str], 
+    def _validate_preserved_files(self, root_path: str, errors: List[str], 
                                 warnings: List[str], missing_files: List[str], 
                                 file_details: Dict[str, Dict[str, Any]]):
-        """Validate required files"""
-        # Validate root required files
-        self._validate_file_list(root_path, self.schema.get('required_files', []), 
+        """Validate preserved files from original package"""
+        # Validate root preserved files
+        self._validate_file_list(root_path, self.schema.get('preserved_files', []), 
                                 errors, warnings, missing_files, file_details, True)
         
         # Validate data directory files
@@ -233,12 +233,78 @@ class MetaCamValidator(BaseValidator):
         # Validate info directory files  
         self._validate_file_list(root_path, self.schema.get('info_directory_files', []),
                                 errors, warnings, missing_files, file_details, True)
+        
+        # Validate optional files
+        self._validate_file_list(root_path, self.schema.get('optional_files', []),
+                                errors, warnings, missing_files, file_details, False)
     
-    def _validate_optional_files(self, root_path: str, warnings: List[str], 
-                                file_details: Dict[str, Dict[str, Any]]):
-        """Validate optional files"""
-        optional_files = self.schema.get('optional_files', [])
-        self._validate_file_list(root_path, optional_files, [], warnings, [], file_details, False)
+    def _validate_archive_directories(self, root_path: str, errors: List[str], 
+                                    warnings: List[str], missing_directories: List[str]):
+        """Validate archive-specific directories"""
+        archive_dirs = self.schema.get('archive_directories', [])
+        
+        for dir_info in archive_dirs:
+            dir_path = os.path.join(root_path, dir_info['path'])
+            
+            if not os.path.exists(dir_path):
+                if dir_info.get('required', True):
+                    error_msg = f"Missing required archive directory: {dir_info['path']}"
+                    errors.append(error_msg)
+                    missing_directories.append(dir_info['path'])
+                    logger.warning(error_msg)
+                else:
+                    warnings.append(f"Missing optional archive directory: {dir_info['path']}")
+            else:
+                logger.debug(f"Found archive directory: {dir_info['path']}")
+                
+                # Validate directory content if quality checks are defined
+                self._validate_archive_directory_content(dir_path, dir_info, errors, warnings)
+    
+    def _validate_archive_directory_content(self, dir_path: str, dir_info: Dict[str, Any],
+                                          errors: List[str], warnings: List[str]):
+        """Validate content of archive directories"""
+        try:
+            # Get quality check requirements for this directory type
+            quality_checks = self.schema.get('quality_checks', {})
+            dir_name = os.path.basename(dir_path)
+            
+            if dir_name in quality_checks:
+                check_config = quality_checks[dir_name]
+                
+                # Count files in directory
+                files = [f for f in os.listdir(dir_path) if os.path.isfile(os.path.join(dir_path, f))]
+                
+                min_count = check_config.get('min_image_count', 0)
+                if len(files) < min_count:
+                    error_msg = f"Archive directory {dir_name} has too few files: {len(files)} < {min_count}"
+                    errors.append(error_msg)
+                
+                # Check file formats
+                supported_formats = check_config.get('supported_formats', [])
+                if supported_formats:
+                    invalid_files = []
+                    for file in files:
+                        file_ext = os.path.splitext(file)[1].lower()
+                        if file_ext not in supported_formats:
+                            invalid_files.append(file)
+                    
+                    if invalid_files:
+                        warning_msg = f"Archive directory {dir_name} contains unsupported file formats: {invalid_files[:5]}"
+                        warnings.append(warning_msg)
+                        
+        except Exception as e:
+            logger.warning(f"Error validating archive directory content {dir_path}: {e}")
+    
+    def _validate_excluded_directories(self, root_path: str, errors: List[str], warnings: List[str]):
+        """Validate that excluded directories (like camera) are not present"""
+        excluded_dirs = self.schema.get('validation_requirements', {}).get('excluded_directories', [])
+        
+        for excluded_dir in excluded_dirs:
+            excluded_path = os.path.join(root_path, excluded_dir)
+            if os.path.exists(excluded_path):
+                error_msg = f"Excluded directory found (should be removed): {excluded_dir}"
+                errors.append(error_msg)
+                logger.warning(error_msg)
     
     def _validate_file_list(self, root_path: str, file_list: List[Dict], 
                            errors: List[str], warnings: List[str], missing_files: List[str],
@@ -324,12 +390,13 @@ class MetaCamValidator(BaseValidator):
         expected_items = set()
         
         # Collect all expected items from schema
-        for dir_info in self.schema.get('required_directories', []):
+        for dir_info in self.schema.get('preserved_directories', []):
             expected_items.add(dir_info['path'])
-            for subdir_info in dir_info.get('subdirectories', []):
-                expected_items.add(subdir_info['path'])
         
-        for file_list in ['required_files', 'optional_files', 'data_directory_files', 'info_directory_files']:
+        for dir_info in self.schema.get('archive_directories', []):
+            expected_items.add(dir_info['path'])
+        
+        for file_list in ['preserved_files', 'optional_files', 'data_directory_files', 'info_directory_files']:
             for file_info in self.schema.get(file_list, []):
                 expected_items.add(file_info['path'])
         
@@ -405,7 +472,7 @@ class MetaCamValidator(BaseValidator):
             errors.append(error_msg)
     
     def _extract_and_validate_metadata(self, root_path: str, errors: List[str], warnings: List[str]) -> Dict[str, Any]:
-        """Extract and validate metadata.yaml and device_info.json information"""
+        """Extract and validate metadata.yaml information"""
         metadata_info = {
             'start_time': None,
             'duration': None,
@@ -642,7 +709,7 @@ class MetaCamValidator(BaseValidator):
             missing_directories=[],
             extra_files=[],
             file_details={},
-            summary=f"Validation failed: {'; '.join(errors)}",
+            summary=f"Archive validation failed: {'; '.join(errors)}",
             validator_type=self.validator_type,
             metadata={'schema_file': self.schema_file}
         )

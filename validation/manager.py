@@ -131,6 +131,9 @@ class ValidationManager:
             # 对于MetaCam格式，执行流水线式验证
             if validator.validator_type == "MetaCamValidator":
                 result = self._perform_pipeline_validation(target_path, validation_level)
+            elif validator.validator_type == "ArchiveMetaCamValidator":
+                # Archive validation uses standalone validation (no pipeline)
+                result = validator.validate(target_path, validation_level)
             else:
                 # 其他验证器使用单独验证
                 result = validator.validate(target_path, validation_level)
@@ -214,6 +217,18 @@ class ValidationManager:
             metacam_validator = MetaCamValidator()
             self.register_validator(metacam_validator, is_default=True)
             
+            # Import and register Processed MetaCam validator
+            from .processed_metacam import ProcessedMetaCamValidator
+            
+            processed_metacam_validator = ProcessedMetaCamValidator()
+            self.register_validator(processed_metacam_validator)
+            
+            # Import and register Archive MetaCam validator
+            from .archive_metacam import ArchiveMetaCamValidator
+            
+            archive_metacam_validator = ArchiveMetaCamValidator()
+            self.register_validator(archive_metacam_validator)
+            
             # Import and register Transient validator (with fallback)
             try:
                 from .transient_validator import TransientValidator
@@ -260,7 +275,7 @@ class ValidationManager:
         
         def check_metacam_structure(path: Path) -> bool:
             """Check if a path contains MetaCam structure (按照schema标准)"""
-            metacam_indicators = ['metadata.yaml', 'camera', 'data', 'info']
+            metacam_indicators = ['metadata.yaml', 'images', 'data', 'info']
             found_indicators = 0
             
             if path.is_dir():
@@ -270,10 +285,70 @@ class ValidationManager:
             
             return found_indicators >= 2
         
+        def check_processed_metacam_structure(path: Path) -> bool:
+            """Check if a path contains processed MetaCam structure"""
+            processed_indicators = ['metadata.yaml', 'transforms.json', 'data']
+            found_indicators = 0
+            
+            if path.is_dir():
+                for indicator in processed_indicators:
+                    if (path / indicator).exists():
+                        found_indicators += 1
+                
+                # Also check for processed point cloud files
+                point_cloud_files = ['colorized.las', 'processed_pointcloud.ply']
+                for pcd_file in point_cloud_files:
+                    if (path / pcd_file).exists():
+                        found_indicators += 1
+                        break
+            
+            return found_indicators >= 2
         
-        # Check for MetaCam structure first (这是唯一的标准格式)
+        def check_archive_metacam_structure(path: Path) -> bool:
+            """Check if a path contains archive MetaCam structure"""
+            # Archive MetaCam should have original files + new archive directories
+            original_indicators = ['metadata.yaml', 'data', 'info']
+            archive_indicators = ['images', 'fisheye', 'fisheye_mask']
+            
+            found_original = 0
+            found_archive = 0
+            
+            if path.is_dir():
+                for indicator in original_indicators:
+                    if (path / indicator).exists():
+                        found_original += 1
+                
+                for indicator in archive_indicators:
+                    if (path / indicator).exists():
+                        found_archive += 1
+            
+            # Should have most original indicators and at least some archive indicators
+            return found_original >= 2 and found_archive >= 2
+        
+        
+        # Check for processed MetaCam structure first
+        if check_processed_metacam_structure(target_path):
+            return 'processed_metacam'
+        
+        # Check for archive MetaCam structure
+        if check_archive_metacam_structure(target_path):
+            return 'archive_metacam'
+        
+        # Check for MetaCam structure (原始格式)
         if check_metacam_structure(target_path):
             return 'metacam'
+        
+        # Check subdirectories for processed MetaCam structure
+        if target_path.is_dir():
+            for item in target_path.iterdir():
+                if item.is_dir() and check_processed_metacam_structure(item):
+                    return 'processed_metacam'
+        
+        # Check subdirectories for archive MetaCam structure
+        if target_path.is_dir():
+            for item in target_path.iterdir():
+                if item.is_dir() and check_archive_metacam_structure(item):
+                    return 'archive_metacam'
         
         # Check subdirectories for MetaCam structure
         if target_path.is_dir():
@@ -325,31 +400,31 @@ class ValidationManager:
         
         logger.info(f"Basic format validation passed: {base_result.summary}")
         
-        # Stage 2: Transient object detection validation (if camera directory exists)
+        # Stage 2: Transient object detection validation (if images directory exists)
         # This stage analyzes camera images for moving obstacles using YOLO11 models
         transient_validator = self.validators.get("TransientValidator")
-        camera_path = os.path.join(target_path, "camera")
+        images_path = os.path.join(target_path, "images")
         
-        # Search for camera directory - could be in root or subdirectory after extraction
-        actual_camera_path = None
-        if os.path.exists(camera_path):
-            actual_camera_path = camera_path
+        # Search for images directory - could be in root or subdirectory after extraction
+        actual_images_path = None
+        if os.path.exists(images_path):
+            actual_images_path = images_path
         else:
-            # Recursive search in subdirectories for camera directory
+            # Recursive search in subdirectories for images directory
             # This handles cases where data is nested in additional folders after extraction
             try:
                 for item in os.listdir(target_path):
                     item_path = os.path.join(target_path, item)
                     if os.path.isdir(item_path):
-                        sub_camera_path = os.path.join(item_path, "camera")
-                        if os.path.exists(sub_camera_path):
-                            actual_camera_path = sub_camera_path
+                        sub_images_path = os.path.join(item_path, "images")
+                        if os.path.exists(sub_images_path):
+                            actual_images_path = sub_images_path
                             break
             except:
                 pass
         
-        # Execute transient detection if both validator and camera directory are available
-        if transient_validator and actual_camera_path:
+        # Execute transient detection if both validator and images directory are available
+        if transient_validator and actual_images_path:
             logger.info("Step 2/2: Transient object detection validation (TransientValidator)")
             try:
                 # Run transient detection analysis on camera images
@@ -376,10 +451,10 @@ class ValidationManager:
         else:
             # Skip transient detection if prerequisites are missing
             # This is not an error - many valid data packages may not have camera images
-            logger.info("Step 2/2: Skipping transient validation (no camera directory or validator unavailable)")
+            logger.info("Step 2/2: Skipping transient validation (no images directory or validator unavailable)")
             base_result.metadata['pipeline_stage'] = 'basic_format'
             base_result.metadata['pipeline_completed'] = True
-            base_result.metadata['transient_detection_skipped'] = 'No camera directory found or TransientValidator unavailable'
+            base_result.metadata['transient_detection_skipped'] = 'No images directory found or TransientValidator unavailable'
             
         logger.info(f"Pipeline validation completed: {base_result.summary}")
         return base_result

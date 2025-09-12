@@ -1,20 +1,21 @@
-# 处理后MetaCam数据包格式规范
-# 用于验证数据处理流程输出的最终数据包结构
+# 归档MetaCam数据包格式规范
+# 用于验证归档处理后的MetaCam数据包结构
+# 归档包包含原始包的所有内容，除了camera目录，并添加images、fisheye、fisheye_mask目录
 
-schema_name: "Processed MetaCam Data Package"
+schema_name: "Archive MetaCam Data Package"
 schema_version: "1.0"
-description: "经过三维重建处理后的MetaCam数据包标准格式"
+description: "归档处理后的MetaCam数据包标准格式"
 
-# 处理后数据包根结构
+# 归档数据包根结构
 root_structure:
-  description: "处理后的数据包应包含原始数据的关键部分和处理结果"
+  description: "归档数据包应包含原始数据的关键部分和归档处理结果"
 
-# 必需的文件（从归档包保留）
+# 必需的文件（从原始包保留）
 preserved_files:
   - path: "metadata.yaml"
     description: "原始元数据配置文件"
     file_type: "text"
-    source: "archive_package"
+    source: "original_package"
     min_size: 100
     max_size: 10240
     extensions: [".yaml", ".yml"]
@@ -22,7 +23,7 @@ preserved_files:
   - path: "Preview.jpg"
     description: "原始预览图片"
     file_type: "binary" 
-    source: "archive_package"
+    source: "original_package"
     min_size: 1024
     max_size: 10485760
     extensions: [".jpg", ".jpeg"]
@@ -30,7 +31,7 @@ preserved_files:
   - path: "Preview.pcd"
     description: "原始预览点云数据"
     file_type: "binary"
-    source: "archive_package"
+    source: "original_package"
     min_size: 1024
     max_size: 104857600
     extensions: [".pcd"]
@@ -38,54 +39,60 @@ preserved_files:
   - path: "colorized-realtime.las"
     description: "彩色点云数据文件"
     file_type: "binary"
-    source: "archive_package"
+    source: "original_package"
     min_size: 1048576  # 1MB
     max_size: 1073741824  # 1GB
     extensions: [".las"]
 
-# 必需的目录（从归档包保留）
+# 必需的目录（从原始包保留，除了camera）
 preserved_directories:
   - path: "data"
     description: "原始数据目录"
-    source: "archive_package"
+    source: "original_package"
     preserve_structure: true
     
   - path: "info"
     description: "设备信息和配置目录"
-    source: "archive_package"
+    source: "original_package"
     preserve_structure: true
 
-# 归档目录（从归档包保留，除了images）
+# 归档处理新增的目录（替换camera目录）
 archive_directories:
+  - path: "images"
+    description: "COLMAP格式的图像目录"
+    source: "archive_processing"
+    preserve_structure: true
+    required: true
+    
   - path: "fisheye"
     description: "鱼眼相机图像目录"
-    source: "archive_package"
+    source: "archive_processing"
     preserve_structure: true
     required: true
     
   - path: "fisheye_mask"
     description: "鱼眼相机掩码目录"
-    source: "archive_package"
+    source: "archive_processing"
     preserve_structure: true
     required: true
 
-# data目录下的必需文件（从归档包保留）
+# data目录下的必需文件（从原始包保留）
 data_directory_files:
   - path: "data/data_0"
     description: "主数据文件"
     file_type: "binary"
-    source: "archive_package"
+    source: "original_package"
     min_size: 1048576  # 1MB
     max_size: 2147483648  # 2GB
     extensions: [".bag", ""]  # 支持.bag扩展名或无扩展名
     flexible_naming: true
 
-# info目录下的必需文件（从归档包保留）
+# info目录下的必需文件（从原始包保留）
 info_directory_files:
   - path: "info/calibration.json"
     description: "相机标定参数"
     file_type: "json"
-    source: "archive_package"
+    source: "original_package"
     min_size: 100
     max_size: 51200  # 50KB
     extensions: [".json"]
@@ -93,7 +100,7 @@ info_directory_files:
   - path: "info/device_info.json"
     description: "设备信息"
     file_type: "json"
-    source: "archive_package"
+    source: "original_package"
     min_size: 50
     max_size: 10240  # 10KB
     extensions: [".json"]
@@ -101,108 +108,60 @@ info_directory_files:
   - path: "info/rtk_info.json"
     description: "RTK定位信息"
     file_type: "json"
-    source: "archive_package"
+    source: "original_package"
     min_size: 10
     max_size: 10240  # 10KB
     extensions: [".json"]
 
-# 可选文件（从归档包保留）
+# 可选文件（从原始包保留）
 optional_files:
   - path: "log.7z"
     description: "日志压缩包"
     file_type: "binary"
-    source: "archive_package"
+    source: "original_package"
     max_size: 52428800  # 50MB
     extensions: [".7z", ".zip", ".gz"]
     
   - path: "sign"
     description: "签名文件"
     file_type: "text"
-    source: "archive_package"
+    source: "original_package"
     max_size: 65536  # 64KB
-
-# 处理结果文件（从exe输出获取）
-# 输出位置: ./processors/exe_packages/processed/output/{package_name}_output
-processing_output_files:
-  - path: "*"
-    description: "处理后的点云文件（保持原始文件名）"
-    file_type: "binary"
-    source: "processing_output"
-    min_size: 1048576  # 1MB
-    max_size: 5368709120  # 5GB
-    extensions: [".las"]  # 支持的点云格式,debug ".ply", ".pcd", ".xyz"
-    required: true
-    naming_note: "保持exe输出的原始文件名不变，支持多种点云格式"
-    
-  - path: "transforms.json"
-    description: "三维变换矩阵文件"
-    file_type: "json"
-    source: "processing_output"
-    min_size: 100
-    max_size: 5242880  # 5MB
-    extensions: [".json"]
-    required: true
-    location_note: "位于: ./processors/exe_packages/processed/output/{package_name}_output"
-
-# 可选的处理输出文件
-optional_processing_files:
-  - path: "processing_log.txt"
-    description: "处理日志文件"
-    file_type: "text"
-    source: "processing_output"
-    max_size: 10485760  # 10MB
-    extensions: [".txt", ".log"]
-    required: false
-
-# COLMAP目录结构
-colmap_directories:
-  - path: "images"
-    description: "COLMAP格式的图像目录"
-    source: "colmap_generation"
-    preserve_structure: true
-    optional: true
 
 # 最终打包要求
 packaging_requirements:
   compression_format: "zip"
-  package_naming: "{original_name}_processed"
+  package_naming: "{original_name}_archive"
   max_package_size: 10737418240  # 10GB
   preserve_timestamps: true
 
 # 验证要求
 validation_requirements:
-  # 必须存在的处理输出文件
-  required_processing_outputs:
-    - "colorized.las"
-    - "transforms.json"
-  
-  # 必须从归档包保留的文件
+  # 必须从原始包保留的文件
   required_preserved_files:
     - "metadata.yaml"
     - "Preview.jpg"
     - "Preview.pcd"
     - "colorized-realtime.las"
   
-  # 必须从归档包保留的目录
+  # 必须从原始包保留的目录
   required_preserved_directories:
     - "data"
     - "info"
   
-  # 必须存在的归档目录（除了images）
+  # 必须存在的归档目录
   required_archive_directories:
+    - "images"
     - "fisheye"
     - "fisheye_mask"
   
-  # 必须不存在的目录（从归档包移除）
+  # 必须不存在的目录（从原始包移除）
   excluded_directories:
-    - "images"
+    - "camera"
 
 # 文件内容验证规则
 content_validation:
   json_files:
-    - path: "transforms.json"
-      required_keys: []  # 具体的keys由处理程序定义
-      description: "变换矩阵JSON格式验证"
     - path: "info/calibration.json"
       required_keys: ["cameras"]
       description: "相机标定JSON格式验证"
@@ -218,38 +177,39 @@ content_validation:
       required_keys: []  # 保持原有结构
       description: "元数据YAML格式验证"
 
-# 处理质量检查
+# 归档质量检查
 quality_checks:
-  colorized_las:
-    min_point_count: 1000  # 最少点数
-    coordinate_range_check: true
-    color_data_check: true
+  images_directory:
+    min_image_count: 10  # 最少图像数量
+    supported_formats: [".jpg", ".jpeg", ".png"]
     
-  transforms_json:
-    matrix_validation: true
-    coordinate_system_check: true
+  fisheye_directory:
+    min_image_count: 10  # 最少鱼眼图像数量
+    supported_formats: [".jpg", ".jpeg", ".png"]
+    
+  fisheye_mask_directory:
+    min_mask_count: 10  # 最少掩码数量
+    supported_formats: [".jpg", ".jpeg", ".png", ".bmp"]
 
 # 错误和警告消息
 messages:
-  missing_processing_output: "缺少处理输出文件: {path}"
-  missing_preserved_file: "缺少保留的归档文件: {path}"
-  missing_preserved_directory: "缺少保留的归档目录: {path}"
+  missing_preserved_file: "缺少保留的原始文件: {path}"
+  missing_preserved_directory: "缺少保留的原始目录: {path}"
   missing_archive_directory: "缺少归档目录: {path}"
   excluded_directory_found: "发现应被移除的目录: {path}"
-  processing_failed: "数据处理失败，未生成必需的输出文件"
   file_too_small: "文件 {path} 过小: {size} < {min_size}"
   file_too_large: "文件 {path} 过大: {size} > {max_size}"
   invalid_json: "JSON文件 {path} 格式错误: {error}"
   invalid_yaml: "YAML文件 {path} 格式错误: {error}"
-  packaging_success: "处理后数据包创建成功: {package_path}"
-  packaging_failed: "处理后数据包创建失败: {error}"
+  archive_success: "归档数据包创建成功: {package_path}"
+  archive_failed: "归档数据包创建失败: {error}"
 
-# 处理流程状态
-processing_status:
-  not_started: "未开始处理"
-  in_progress: "处理中"
-  processing_completed: "exe处理完成"
+# 归档流程状态
+archive_status:
+  not_started: "未开始归档"
+  in_progress: "归档中"
+  archive_completed: "归档完成"
   packaging_started: "开始打包"
   packaging_completed: "打包完成"
-  failed: "处理失败"
-  success: "处理成功"
+  failed: "归档失败"
+  success: "归档成功"
