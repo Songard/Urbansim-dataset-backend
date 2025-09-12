@@ -551,19 +551,24 @@ class GoogleDriveMonitorSystem:
                                             processing_results['final_package_result'] = package_result
                                             
                                             # Upload to Hugging Face if enabled
-                                            hf_upload_result = self._upload_to_huggingface(
-                                                package_path=final_package_path,
-                                                file_id=file_id,
-                                                scene_type=scene_type,
-                                                validation_score=validation_score if isinstance(validation_score, (int, float)) else None,
-                                                processing_success=True,
-                                                metadata={
-                                                    'file_name': file_name,
-                                                    'upload_time': file_info.get('createdTime', ''),
-                                                    'compression_duration': compression_duration,
-                                                    'colmap_result': package_result.get('colmap_result', {})
-                                                }
-                                            )
+                                            hf_upload_result = None
+                                            if Config.ENABLE_HF_UPLOAD:
+                                                hf_upload_result = self._upload_to_huggingface(
+                                                    package_path=final_package_path,
+                                                    file_id=file_id,
+                                                    scene_type=scene_type,
+                                                    validation_score=validation_score if isinstance(validation_score, (int, float)) else None,
+                                                    processing_success=True,
+                                                    metadata={
+                                                        'file_name': file_name,
+                                                        'upload_time': file_info.get('createdTime', ''),
+                                                        'compression_duration': compression_duration,
+                                                        'colmap_result': package_result.get('colmap_result', {})
+                                                    }
+                                                )
+                                            else:
+                                                logger.info("Hugging Face upload disabled by configuration; skipping upload")
+                                                hf_upload_result = {'skipped': True, 'reason': 'disabled_by_config'}
                                             processing_results['hf_upload_result'] = hf_upload_result
                                             
                                             # Check if HuggingFace upload was successful and delete source file if configured

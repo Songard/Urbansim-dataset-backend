@@ -313,13 +313,14 @@ def create_final_package(
                                         '--face_model_score_threshold', str(Config.IMAGE_MASK_FACE_MODEL_SCORE_THRESHOLD),
                                         '--lp_model_score_threshold', str(Config.IMAGE_MASK_LP_MODEL_SCORE_THRESHOLD),
                                         '--nms_iou_threshold', str(Config.IMAGE_MASK_NMS_IOU_THRESHOLD),
-                                        '--scale_factor_detections', str(Config.IMAGE_MASK_SCALE_FACTOR_DETECTIONS)
+                                        '--scale_factor_detections', str(Config.IMAGE_MASK_SCALE_FACTOR_DETECTIONS),
+                                        '--show_progress'
                                     ]
                                     if getattr(Config, 'IMAGE_MASK_FACE_MODEL_PATH', None):
                                         cmd += ['--face_model_path', Config.IMAGE_MASK_FACE_MODEL_PATH]
                                     if getattr(Config, 'IMAGE_MASK_LP_MODEL_PATH', None):
                                         cmd += ['--lp_model_path', Config.IMAGE_MASK_LP_MODEL_PATH]
-                                    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+                                    subprocess.run(cmd, check=False)
                                 else:
                                     logger.warning("image_masker.py not found; skipping masking")
                         # Remove sparse/ and images/ from processed package workspace
@@ -393,19 +394,23 @@ def create_final_package(
         # Ensure output directory exists
         final_package_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Create the final package with proper folder structure
+        # Create processed and archive packages from the same assembled temp directory
+        # Processed: exclude images/ and camera/
         compression_start = datetime.now()
         compression_duration = _create_zip_with_folder_structure(
-            temp_package_dir, final_package_path, base_name, "final package"
+            temp_package_dir, final_package_path, base_name, "final package", exclude_dirs=["images", "camera"]
         )
-        
-        # Create archive package if enabled
         archive_path = None
         if Config.ENABLE_ARCHIVE_CREATION:
-            logger.info("Creating archive package with all files (including unmasked images)...")
-            archive_path = _create_archive_package(
-                original_path, output_files, base_name, scene_type, processing_output_path
+            # Archive: include everything except camera/
+            archive_output_with_data = Path(Config.ARCHIVE_OUTPUT_PATH) / "data"
+            archive_output_with_data.mkdir(parents=True, exist_ok=True)
+            archive_zip_name = f"{base_name}_archive.zip"
+            archive_zip_path = archive_output_with_data / archive_zip_name
+            _ = _create_zip_with_folder_structure(
+                temp_package_dir, archive_zip_path, f"{base_name}_archive", "archive package", exclude_dirs=["camera"]
             )
+            archive_path = str(archive_zip_path)
         logger.info(f"✓ Compression completed in {compression_duration:.1f}s")
         
         # Get package info
@@ -580,7 +585,7 @@ def _verify_final_package(package_path: Path) -> bool:
         return False
 
 
-def _create_zip_with_folder_structure(source_dir: Path, zip_path: Path, folder_name: str, package_type: str) -> float:
+def _create_zip_with_folder_structure(source_dir: Path, zip_path: Path, folder_name: str, package_type: str, exclude_dirs: Optional[List[str]] = None) -> float:
     """
     Create a zip file with proper folder structure (creates a top-level folder when unzipped)
     
@@ -594,7 +599,18 @@ def _create_zip_with_folder_structure(source_dir: Path, zip_path: Path, folder_n
         Compression duration in seconds
     """
     # Count total files to compress for progress tracking
-    all_files = [f for f in source_dir.rglob('*') if f.is_file()]
+    exclude_dirs = exclude_dirs or []
+    all_files = []
+    for f in source_dir.rglob('*'):
+        if not f.is_file():
+            continue
+        # Skip excluded directories
+        relative_parent_parts = f.relative_to(source_dir).parts
+        if relative_parent_parts:
+            top_level_dir = relative_parent_parts[0]
+            if top_level_dir in exclude_dirs:
+                continue
+        all_files.append(f)
     total_files_to_compress = len(all_files)
     
     logger.info(f"Compressing {package_type}: {zip_path}")
@@ -760,7 +776,7 @@ def _create_archive_package(original_path: str, output_files: Dict[str, str], ba
                                 cmd += ['--face_model_path', Config.IMAGE_MASK_FACE_MODEL_PATH]
                             if getattr(Config, 'IMAGE_MASK_LP_MODEL_PATH', None):
                                 cmd += ['--lp_model_path', Config.IMAGE_MASK_LP_MODEL_PATH]
-                            subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+                            subprocess.run(cmd, check=False)
                         else:
                             logger.warning("image_masker.py not found; skipping archive masking")
                 except Exception as e:
