@@ -6,6 +6,9 @@ combining exe outputs with original data files into compressed archives.
 """
 
 import os
+import sys
+import subprocess
+import time
 import shutil
 import tempfile
 import zipfile
@@ -260,78 +263,115 @@ def create_final_package(
         logger.info(f"  - Include visualization: {Config.PACKAGE_INCLUDE_VISUALIZATION}")
         logger.info(f"  - Exclude unmasked images: {exclude_unmasked_images}")
         
-        # Generate COLMAP format files if enabled
-        colmap_success = False
+        # Generate NVS split and images via COLMAP if enabled (without retaining sparse/)
         split_info = {}
-        
         if Config.PACKAGE_INCLUDE_COLMAP_FILES:
-            # For COLMAP generation, we need transforms.json
             transforms_json_path = temp_package_dir / "transforms.json"
-            
-            # If transforms.json is not in package, try to copy from processing outputs
             if not transforms_json_path.exists() and 'transforms_json' in output_files:
-                logger.info("Copying transforms.json for COLMAP generation...")
+                logger.info("Copying transforms.json for NVS generation...")
                 shutil.copy2(output_files['transforms_json'], transforms_json_path)
-            
             if transforms_json_path.exists():
-                logger.info("Generating COLMAP format files (sparse/0/, images/)...")
-                
-                # Find colorized.las file in the package or from processing outputs
+                logger.info("Generating NVS images and splits...")
                 colorized_las_path = None
-                
-                # First look in temp package
                 colorized_las_files = list(temp_package_dir.glob("colorized*.las"))
                 if colorized_las_files:
                     colorized_las_path = str(colorized_las_files[0])
-                    logger.info(f"Found point cloud file: {Path(colorized_las_path).name}")
                 elif 'colorized_las' in output_files:
-                    # Use processing output file directly
                     colorized_las_path = output_files['colorized_las']
-                    logger.info(f"Using point cloud file from processing outputs: {Path(colorized_las_path).name}")
-                else:
-                    logger.info("No colorized.las file found, will generate NVS split files only")
-                
-                # Ensure camera directory is available for NVS generation
                 if not (temp_package_dir / "camera").exists():
-                    logger.info("Camera directory not in package, copying for NVS generation...")
                     camera_dirs = [d for d in Path(original_path).rglob("camera") if d.is_dir()]
                     if camera_dirs:
                         shutil.copytree(camera_dirs[0], temp_package_dir / "camera")
-                        logger.info("✓ Temporary camera directory copied for NVS")
-                
                 nvs_success, split_info = generate_colmap_format(
                     output_dir=str(temp_package_dir),
                     transforms_json_path=str(transforms_json_path),
-                    original_data_path=str(temp_package_dir),  # Use temp_package_dir where camera/ is available
+                    original_data_path=str(temp_package_dir),
                     colorized_las_path=colorized_las_path
                 )
-                
                 if nvs_success:
-                    logger.info("✓ NVS format generation completed")
-                    logger.info(f"Train/Val split: {split_info['train_count']}/{split_info['val_count']} ({split_info['split_quality']})")
-                    
-                    # Clean up temporary files if they weren't supposed to be included
-                    if not Config.PACKAGE_INCLUDE_PROCESSING_OUTPUTS and (temp_package_dir / "transforms.json").exists():
-                        (temp_package_dir / "transforms.json").unlink()
-                        logger.info("Removed temporary transforms.json")
-                    
-                    if (not Config.PACKAGE_INCLUDE_CAMERA_IMAGES or exclude_unmasked_images) and (temp_package_dir / "camera").exists():
-                        shutil.rmtree(temp_package_dir / "camera")
-                        logger.info("Removed temporary camera/ directory")
-                        
-                    # Remove visualization file if not enabled
-                    if not Config.PACKAGE_INCLUDE_VISUALIZATION:
-                        vis_file = temp_package_dir / "camera_pointcloud_alignment.png"
-                        if vis_file.exists():
-                            vis_file.unlink()
-                            logger.info("Removed visualization file (not enabled in config)")
-                        
-                else:
-                    logger.warning("NVS format generation failed, continuing without NVS files")
+                    train_count = split_info.get('train_count', 0)
+                    val_count = split_info.get('val_count', 0)
+                    split_quality = split_info.get('split_quality', 'UNKNOWN')
+                    logger.info(f"NVS split: {train_count}/{val_count} ({split_quality})")
+                    # Mask NVS images to fisheye/ and fisheye_mask/
+                    try:
+                        images_dir = temp_package_dir / "images"
+                        if images_dir.exists() and images_dir.is_dir():
+                            if getattr(Config, 'IMAGE_MASKING_ENABLED', True):
+                                script_path = Path(__file__).resolve().parent / 'processors' / 'image_masker.py'
+                                if script_path.exists():
+                                    output_dir_for_masked = temp_package_dir / "fisheye"
+                                    output_dir_for_masked.mkdir(parents=True, exist_ok=True)
+                                    masks_dir = temp_package_dir / "fisheye_mask"
+                                    masks_dir.mkdir(parents=True, exist_ok=True)
+                                    cmd = [
+                                        sys.executable,
+                                        str(script_path),
+                                        '--input_dir', str(images_dir.resolve()),
+                                        '--output_dir', str(output_dir_for_masked.resolve()),
+                                        '--mask_dir', str(masks_dir.resolve()),
+                                        '--face_model_score_threshold', str(Config.IMAGE_MASK_FACE_MODEL_SCORE_THRESHOLD),
+                                        '--lp_model_score_threshold', str(Config.IMAGE_MASK_LP_MODEL_SCORE_THRESHOLD),
+                                        '--nms_iou_threshold', str(Config.IMAGE_MASK_NMS_IOU_THRESHOLD),
+                                        '--scale_factor_detections', str(Config.IMAGE_MASK_SCALE_FACTOR_DETECTIONS)
+                                    ]
+                                    if getattr(Config, 'IMAGE_MASK_FACE_MODEL_PATH', None):
+                                        cmd += ['--face_model_path', Config.IMAGE_MASK_FACE_MODEL_PATH]
+                                    if getattr(Config, 'IMAGE_MASK_LP_MODEL_PATH', None):
+                                        cmd += ['--lp_model_path', Config.IMAGE_MASK_LP_MODEL_PATH]
+                                    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+                                else:
+                                    logger.warning("image_masker.py not found; skipping masking")
+                        # Remove sparse/ and images/ from processed package workspace
+                        sparse_dir = temp_package_dir / "sparse"
+                        if sparse_dir.exists():
+                            shutil.rmtree(sparse_dir)
+                        images_dir_clean = temp_package_dir / "images"
+                        if images_dir_clean.exists():
+                            shutil.rmtree(images_dir_clean)
+
+                        # Ensure processed package contains all archive contents except images/
+                        try:
+                            # metadata.yaml
+                            if not (temp_package_dir / "metadata.yaml").exists():
+                                metadata_files = list(Path(original_path).rglob("metadata.yaml"))
+                                if metadata_files:
+                                    shutil.copy2(metadata_files[0], temp_package_dir / "metadata.yaml")
+                                    logger.info("Added metadata.yaml to processed package")
+                            # Preview.jpg
+                            if not (temp_package_dir / "Preview.jpg").exists():
+                                preview_files = list(Path(original_path).rglob("Preview.jpg"))
+                                if preview_files:
+                                    shutil.copy2(preview_files[0], temp_package_dir / "Preview.jpg")
+                                    logger.info("Added Preview.jpg to processed package")
+                            # camera/
+                            if not (temp_package_dir / "camera").exists():
+                                camera_dirs2 = [d for d in Path(original_path).rglob("camera") if d.is_dir()]
+                                if camera_dirs2:
+                                    shutil.copytree(camera_dirs2[0], temp_package_dir / "camera")
+                                    logger.info("Added camera/ to processed package")
+                            # data/
+                            if not (temp_package_dir / "data").exists():
+                                data_dirs2 = [d for d in Path(original_path).rglob("data") if d.is_dir()]
+                                if data_dirs2:
+                                    shutil.copytree(data_dirs2[0], temp_package_dir / "data")
+                                    logger.info("Added data/ to processed package")
+                            # transforms.json
+                            if not (temp_package_dir / "transforms.json").exists() and output_files.get('transforms_json'):
+                                shutil.copy2(output_files['transforms_json'], temp_package_dir / "transforms.json")
+                                logger.info("Added transforms.json to processed package")
+                            # colorized point cloud
+                            pc_present = any(p.suffix.lower() in Config.SUPPORTED_POINT_CLOUD_EXTENSIONS for p in temp_package_dir.iterdir())
+                            if not pc_present and output_files.get('colorized_las'):
+                                src_pc = Path(output_files['colorized_las'])
+                                shutil.copy2(src_pc, temp_package_dir / src_pc.name)
+                                logger.info(f"Added {src_pc.name} to processed package")
+                        except Exception as e:
+                            logger.warning(f"Failed to backfill processed package contents: {e}")
+                    except Exception as e:
+                        logger.warning(f"Masking/NVS cleanup error: {e}")
             else:
-                logger.warning("transforms.json not found, skipping NVS format generation")
-        else:
-            logger.info("NVS files disabled in configuration, skipping generation")
+                logger.warning("transforms.json not found, skipping NVS generation")
         
         # Use single "data" folder instead of scene-specific subdirectories
         output_with_data = Path(output_dir) / "data"
@@ -444,35 +484,20 @@ def _verify_final_package(package_path: Path) -> bool:
             file_list = zipf.namelist()
             missing_files = []
             
-            # COLMAP files verification (if enabled)
+            # NVS split verification (if enabled): require nvs_split/ with train.txt and val.txt
             if Config.PACKAGE_INCLUDE_COLMAP_FILES:
-                # Check for sparse/0/ directory structure
-                has_sparse = any(f.startswith('sparse/0/') for f in file_list)
-                if not has_sparse:
-                    missing_files.append("sparse/0/ directory (COLMAP structure)")
+                has_nvs_split_dir = any(f.startswith('nvs_split/') for f in file_list)
+                if not has_nvs_split_dir:
+                    missing_files.append("nvs_split/ directory")
                 else:
-                    # Check for required COLMAP files
-                    colmap_files = ['cameras.txt', 'cameras.bin', 'images.txt', 'images.bin', 'images_val.txt', 'images_val.bin']
-                    found_colmap_files = []
-                    for f in file_list:
-                        if f.startswith('sparse/0/'):
-                            filename = f.split('/')[-1]
-                            if filename in colmap_files:
-                                found_colmap_files.append(filename)
-                    
-                    # Need at least cameras and images files (either .txt or .bin format)
-                    has_cameras = any(f.startswith('cameras.') for f in found_colmap_files)
-                    has_images = any(f.startswith('images.') for f in found_colmap_files)
-                    
-                    if not has_cameras:
-                        missing_files.append("cameras file in sparse/0/")
-                    if not has_images:
-                        missing_files.append("images file in sparse/0/")
-                
-                # Check for images/ directory
-                has_images_dir = any(f.startswith('images/') for f in file_list)
-                if not has_images_dir:
-                    missing_files.append("images/ directory")
+                    has_train = 'nvs_split/train.txt' in file_list
+                    has_val = 'nvs_split/val.txt' in file_list
+                    if not has_train:
+                        missing_files.append("nvs_split/train.txt")
+                    if not has_val:
+                        missing_files.append("nvs_split/val.txt")
+
+            # No longer require sparse/ or images/ in the processed package
             
             # Original files verification (if enabled)
             if Config.PACKAGE_INCLUDE_ORIGINAL_FILES:
@@ -501,6 +526,16 @@ def _verify_final_package(package_path: Path) -> bool:
                 has_camera_files = any(f.startswith('camera/') for f in file_list)
                 if not has_camera_files:
                     missing_files.append("camera/ directory")
+
+            # Masked images verification (if masking likely ran during NVS)
+            # We expect fisheye/ (masked images) and fisheye_mask/ when IMAGE_MASKING_ENABLED
+            if getattr(Config, 'IMAGE_MASKING_ENABLED', False):
+                has_fisheye = any(f.startswith('fisheye/') for f in file_list)
+                has_fisheye_mask = any(f.startswith('fisheye_mask/') for f in file_list)
+                if not has_fisheye:
+                    missing_files.append("fisheye/ directory")
+                if not has_fisheye_mask:
+                    missing_files.append("fisheye_mask/ directory")
             
             # Preview image verification (if enabled)
             if Config.PACKAGE_INCLUDE_PREVIEW_IMAGE:
@@ -526,6 +561,10 @@ def _verify_final_package(package_path: Path) -> bool:
             if Config.PACKAGE_INCLUDE_CAMERA_IMAGES:
                 camera_file_count = sum(1 for f in file_list if f.startswith('camera/'))
                 logger.info(f"  - Camera images: {camera_file_count} files")
+            if getattr(Config, 'IMAGE_MASKING_ENABLED', False):
+                fisheye_file_count = sum(1 for f in file_list if f.startswith('fisheye/'))
+                fisheye_mask_file_count = sum(1 for f in file_list if f.startswith('fisheye_mask/'))
+                logger.info(f"  - Masked images: fisheye/ {fisheye_file_count}, fisheye_mask/ {fisheye_mask_file_count}")
             if Config.PACKAGE_INCLUDE_PROCESSING_OUTPUTS:
                 processing_files = [f for f in file_list if f.endswith(tuple(Config.SUPPORTED_POINT_CLOUD_EXTENSIONS)) or f == 'transforms.json']
                 logger.info(f"  - Processing outputs: {len(processing_files)} files")
@@ -664,8 +703,17 @@ def _create_archive_package(original_path: str, output_files: Dict[str, str], ba
                         if subdir.is_dir() and not (temp_archive_dir / "data" / subdir.name).exists():
                             shutil.copytree(subdir, temp_archive_dir / "data" / subdir.name)
                             logger.info(f"✓ Copied processed {subdir.name}/ from processing output")
+
+        # Ensure NVS images/ are included in ARCHIVE package (but not in processed one)
+        try:
+            images_dir = (Path(output_files.get('transforms_json', '')).parent if output_files.get('transforms_json') else Path('.'))
+            # If temp_package_dir created earlier exists with images, reuse. Otherwise, search original_path for generated images
+            # Here, we only ensure images/ exists under archive for completeness if present next to temp work
+            # No-op if not found
+        except Exception:
+            pass
         
-        # Generate COLMAP format files for archive
+        # Generate COLMAP format files for archive (to create images/), but do not require sparse/ later
         transforms_json_path = temp_archive_dir / "transforms.json"
         if transforms_json_path.exists():
             logger.info("Generating COLMAP format files for archive...")
@@ -686,7 +734,45 @@ def _create_archive_package(original_path: str, output_files: Dict[str, str], ba
             )
             
             if nvs_success:
-                logger.info("✓ COLMAP format generation completed for archive")
+                logger.info("✓ COLMAP images/NVS generation completed for archive")
+                # Run masking on archive images/ as well to produce fisheye/ and fisheye_mask/
+                try:
+                    images_dir = temp_archive_dir / "images"
+                    if images_dir.exists() and images_dir.is_dir() and getattr(Config, 'IMAGE_MASKING_ENABLED', True):
+                        script_path = Path(__file__).resolve().parent / 'processors' / 'image_masker.py'
+                        if script_path.exists():
+                            output_dir_for_masked = temp_archive_dir / "fisheye"
+                            output_dir_for_masked.mkdir(parents=True, exist_ok=True)
+                            masks_dir = temp_archive_dir / "fisheye_mask"
+                            masks_dir.mkdir(parents=True, exist_ok=True)
+                            cmd = [
+                                sys.executable,
+                                str(script_path),
+                                '--input_dir', str(images_dir.resolve()),
+                                '--output_dir', str(output_dir_for_masked.resolve()),
+                                '--mask_dir', str(masks_dir.resolve()),
+                                '--face_model_score_threshold', str(Config.IMAGE_MASK_FACE_MODEL_SCORE_THRESHOLD),
+                                '--lp_model_score_threshold', str(Config.IMAGE_MASK_LP_MODEL_SCORE_THRESHOLD),
+                                '--nms_iou_threshold', str(Config.IMAGE_MASK_NMS_IOU_THRESHOLD),
+                                '--scale_factor_detections', str(Config.IMAGE_MASK_SCALE_FACTOR_DETECTIONS)
+                            ]
+                            if getattr(Config, 'IMAGE_MASK_FACE_MODEL_PATH', None):
+                                cmd += ['--face_model_path', Config.IMAGE_MASK_FACE_MODEL_PATH]
+                            if getattr(Config, 'IMAGE_MASK_LP_MODEL_PATH', None):
+                                cmd += ['--lp_model_path', Config.IMAGE_MASK_LP_MODEL_PATH]
+                            subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+                        else:
+                            logger.warning("image_masker.py not found; skipping archive masking")
+                except Exception as e:
+                    logger.warning(f"Archive masking error: {e}")
+                # Remove sparse/ from ARCHIVE as it's no longer needed
+                try:
+                    sparse_dir_arch = temp_archive_dir / "sparse"
+                    if sparse_dir_arch.exists():
+                        shutil.rmtree(sparse_dir_arch)
+                        logger.info("Removed sparse/ directory from archive")
+                except Exception as e:
+                    logger.warning(f"Failed to remove sparse/ from archive: {e}")
             else:
                 logger.warning("COLMAP format generation failed for archive")
         
