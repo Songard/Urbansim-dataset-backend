@@ -125,13 +125,17 @@ processors/exe_packages/output/{package_name}_output/
 ```
 
 ### Final Processed Package
-The system creates final processed packages organized by scene type:
+The system creates final processed packages in a single data folder:
 ```
-processed/outdoor/{file_id}.zip    # Outdoor scenes
-processed/indoor/{file_id}.zip     # Indoor scenes
+processed/data/{file_id}.zip       # All processed packages
 # OR (fallback if file_id not available)
-processed/outdoor/{package_name}.zip
-processed/indoor/{package_name}.zip
+processed/data/{package_name}.zip
+```
+
+Scene type information is logged to separate text files:
+```
+processed/data/indoor.txt          # List of indoor scene names
+processed/data/outdoor.txt         # List of outdoor scene names
 ```
 
 **Package Contents:**

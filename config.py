@@ -459,9 +459,11 @@ class Config:
         # 创建必要的目录
         os.makedirs(cls.DOWNLOAD_PATH, exist_ok=True)
         os.makedirs(cls.PROCESSED_PATH, exist_ok=True)
+        os.makedirs(os.path.join(cls.PROCESSED_PATH, 'data'), exist_ok=True)  # 创建processed/data目录
         os.makedirs(cls.PROCESSING_OUTPUT_PATH, exist_ok=True)
         os.makedirs(cls.PROCESSORS_EXE_PATH, exist_ok=True)
         os.makedirs(cls.ARCHIVE_OUTPUT_PATH, exist_ok=True)
+        os.makedirs(os.path.join(cls.ARCHIVE_OUTPUT_PATH, 'data'), exist_ok=True)  # 创建archive/data目录
         os.makedirs(os.path.dirname(cls.LOG_FILE), exist_ok=True)
         os.makedirs('data', exist_ok=True)
         

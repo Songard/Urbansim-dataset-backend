@@ -516,23 +516,17 @@ class GoogleDriveMonitorSystem:
                                                 processing_output_path = transforms_path.parent
                                                 logger.info(f"Detected processing output directory from transforms.json: {processing_output_path}")
                                             
-                                            if processing_output_path and processing_output_path.exists():
-                                                logger.info(f"Running image masking on processing output directory: {processing_output_path}")
-                                                masking_info = self._run_image_masking(str(processing_output_path))
-                                                processing_results['processing_steps'].append({
-                                                    'step': 'image_masking',
-                                                    'result': masking_info
-                                                })
-                                                if masking_info.get('success'):
-                                                    logger.success("Image masking completed successfully")
-                                                else:
-                                                    logger.warning(f"Image masking completed with issues: {masking_info}")
+                                            # Run image masking on the original extracted path (where images/ directory is located)
+                                            logger.info(f"Running image masking on original extracted path: {original_extracted_path}")
+                                            masking_info = self._run_image_masking(str(original_extracted_path))
+                                            processing_results['processing_steps'].append({
+                                                'step': 'image_masking',
+                                                'result': masking_info
+                                            })
+                                            if masking_info.get('success'):
+                                                logger.success("Image masking completed successfully")
                                             else:
-                                                logger.warning("Could not determine processing output directory for image masking")
-                                                processing_results['processing_steps'].append({
-                                                    'step': 'image_masking',
-                                                    'result': {'success': False, 'error': 'Could not determine processing output directory'}
-                                                })
+                                                logger.warning(f"Image masking completed with issues: {masking_info}")
                                         except Exception as e:
                                             logger.warning(f"Image masking step failed: {e}")
                                             processing_results['processing_steps'].append({
@@ -687,9 +681,11 @@ class GoogleDriveMonitorSystem:
                 }
             )
             
-            # 7. 移动文件到processed目录
+            # 7. 移动文件到processed/data目录
             if Config.CLEAN_TEMP_FILES:
-                processed_path = Path(Config.PROCESSED_PATH) / file_name
+                processed_data_dir = Path(Config.PROCESSED_PATH) / "data"
+                processed_data_dir.mkdir(parents=True, exist_ok=True)
+                processed_path = processed_data_dir / file_name
                 try:
                     Path(download_path).rename(processed_path)
                     logger.debug(f"文件已移动到: {processed_path}")
@@ -789,36 +785,23 @@ class GoogleDriveMonitorSystem:
             base_path = Path(data_path)
             logger.info(f"Running image masking in: {base_path}")
 
-            # Check for fisheye images directory (cameras)
-            cameras_dir = base_path / 'camera'
-            if cameras_dir.exists() and cameras_dir.is_dir():
-                logger.info(f"Found cameras directory: {cameras_dir}")
-                # Create output directories
-                fisheye_output_dir = base_path / "fisheye"
-                fisheye_mask_dir = base_path / "fisheye_mask"
+            # Check for images directory
+            images_dir = base_search_path / 'images'
+            if images_dir.exists() and images_dir.is_dir():
+                logger.info(f"Found images directory: {images_dir}")
+                # Create output directories in the same location as images directory
+                fisheye_output_dir = base_search_path / "fisheye"
+                fisheye_mask_dir = base_search_path / "fisheye_mask"
                 fisheye_output_dir.mkdir(parents=True, exist_ok=True)
                 fisheye_mask_dir.mkdir(parents=True, exist_ok=True)
                 
-                # Run masking on cameras directory
-                self._run_masking_on_directory("fisheye", cameras_dir, fisheye_output_dir, fisheye_mask_dir, script_path, details)
-            
-            # Check for undistorted images directory
-            undistorted_dir = base_path / 'undistorted'
-            if undistorted_dir.exists() and undistorted_dir.is_dir():
-                logger.info(f"Found undistorted directory: {undistorted_dir}")
-                # Create output directories
-                images_output_dir = base_path / "images"
-                images_mask_dir = base_path / "images_mask"
-                images_output_dir.mkdir(parents=True, exist_ok=True)
-                images_mask_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Run masking on undistorted directory
-                self._run_masking_on_directory("undistorted", undistorted_dir, images_output_dir, images_mask_dir, script_path, details)
+                # Run masking on images directory
+                self._run_masking_on_directory("fisheye", images_dir, fisheye_output_dir, fisheye_mask_dir, script_path, details)
             
             # Check if we processed any directories
             if not details['runs']:
-                logger.warning(f'No image directories found for masking in {base_path}')
-                logger.warning('Expected: cameras/ and/or undistorted/')
+                logger.warning(f'No images directory found for masking in {base_path}')
+                logger.warning('Expected: data/images/ or images/')
                 return {'success': False, 'runs': [], 'error': 'no_image_dirs'}
 
             return details

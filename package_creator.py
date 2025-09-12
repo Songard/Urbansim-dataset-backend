@@ -20,6 +20,37 @@ from utils.colmap_utils import generate_colmap_format
 logger = get_logger(__name__)
 
 
+def _log_scene_name(scene_type: str, file_id: str, package_name: str, output_dir: str):
+    """
+    Log scene name to appropriate text file (indoor.txt or outdoor.txt)
+    
+    Args:
+        scene_type: Scene type (indoor/outdoor)
+        file_id: Google Drive file ID
+        package_name: Package name
+        output_dir: Output directory where log files are stored
+    """
+    try:
+        # Determine log file name
+        log_filename = "indoor.txt" if scene_type.lower() == "indoor" else "outdoor.txt"
+        log_file_path = Path(output_dir) / "data" / log_filename
+        
+        # Ensure the data directory exists
+        log_file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Use file_id if available, otherwise use package_name
+        scene_name = file_id if file_id else package_name
+        
+        # Append to log file
+        with open(log_file_path, 'a', encoding='utf-8') as f:
+            f.write(f"{scene_name}\n")
+        
+        logger.info(f"Logged scene name '{scene_name}' to {log_filename}")
+        
+    except Exception as e:
+        logger.warning(f"Failed to log scene name to {log_filename}: {e}")
+
+
 def create_final_package(
     original_path: str, 
     output_files: Dict[str, str], 
@@ -302,9 +333,8 @@ def create_final_package(
         else:
             logger.info("NVS files disabled in configuration, skipping generation")
         
-        # Create scene-specific subdirectory and file naming
-        scene_subdir = "outdoor" if scene_type.lower() == "outdoor" else "indoor"
-        output_with_scene = Path(output_dir) / scene_subdir
+        # Use single "data" folder instead of scene-specific subdirectories
+        output_with_data = Path(output_dir) / "data"
         
         # Use file_id for naming without _processed suffix
         if file_id:
@@ -316,9 +346,9 @@ def create_final_package(
             final_package_name = f"{package_name}.zip"
             logger.info(f"Using package name for final package: {package_name}")
         
-        final_package_path = output_with_scene / final_package_name
+        final_package_path = output_with_data / final_package_name
         logger.info(f"Final package will be saved to: {final_package_path}")
-        logger.info(f"Scene type: {scene_type} -> subdirectory: {scene_subdir}")
+        logger.info(f"Scene type: {scene_type} -> using data folder")
         
         # Ensure output directory exists
         final_package_path.parent.mkdir(parents=True, exist_ok=True)
@@ -341,6 +371,9 @@ def create_final_package(
         # Get package info
         package_size = final_package_path.stat().st_size
         package_size_mb = package_size / (1024 * 1024)
+        
+        # Log scene name to appropriate text file
+        _log_scene_name(scene_type, file_id, package_name, output_dir)
         
         # Cleanup temporary directory
         shutil.rmtree(temp_package_dir)
@@ -657,13 +690,12 @@ def _create_archive_package(original_path: str, output_files: Dict[str, str], ba
             else:
                 logger.warning("COLMAP format generation failed for archive")
         
-        # Create archive zip file
-        scene_subdir = "outdoor" if scene_type.lower() == "outdoor" else "indoor"
-        archive_output_with_scene = Path(Config.ARCHIVE_OUTPUT_PATH) / scene_subdir
-        archive_output_with_scene.mkdir(parents=True, exist_ok=True)
+        # Create archive zip file in data folder
+        archive_output_with_data = Path(Config.ARCHIVE_OUTPUT_PATH) / "data"
+        archive_output_with_data.mkdir(parents=True, exist_ok=True)
         
         archive_zip_name = f"{base_name}_archive.zip"
-        archive_zip_path = archive_output_with_scene / archive_zip_name
+        archive_zip_path = archive_output_with_data / archive_zip_name
         
         # Create archive zip with folder structure
         compression_duration = _create_zip_with_folder_structure(
