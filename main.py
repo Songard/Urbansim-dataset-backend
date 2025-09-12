@@ -786,12 +786,12 @@ class GoogleDriveMonitorSystem:
             logger.info(f"Running image masking in: {base_path}")
 
             # Check for images directory
-            images_dir = base_search_path / 'images'
+            images_dir = base_path / 'images'
             if images_dir.exists() and images_dir.is_dir():
                 logger.info(f"Found images directory: {images_dir}")
                 # Create output directories in the same location as images directory
-                fisheye_output_dir = base_search_path / "fisheye"
-                fisheye_mask_dir = base_search_path / "fisheye_mask"
+                fisheye_output_dir = base_path / "fisheye"
+                fisheye_mask_dir = base_path / "fisheye_mask"
                 fisheye_output_dir.mkdir(parents=True, exist_ok=True)
                 fisheye_mask_dir.mkdir(parents=True, exist_ok=True)
                 
