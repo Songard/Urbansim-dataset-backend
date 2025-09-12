@@ -14,7 +14,7 @@ import tempfile
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 from config import Config
 from utils.logger import get_logger
