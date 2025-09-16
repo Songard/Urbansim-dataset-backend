@@ -10,8 +10,7 @@ class Config:
     SERVICE_ACCOUNT_FILE = os.getenv('SERVICE_ACCOUNT_FILE', 'service-account.json')
     
     SCOPES = [
-        'https://www.googleapis.com/auth/drive.readonly',
-        'https://www.googleapis.com/auth/drive.file',  # 添加文件删除权限
+        'https://www.googleapis.com/auth/drive',  # 完整Drive权限（包含读写删除）
         'https://www.googleapis.com/auth/spreadsheets'
     ]
     
