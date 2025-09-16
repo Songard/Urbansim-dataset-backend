@@ -368,10 +368,15 @@ class DriveMonitor:
             
             logger.info(f"Attempting to delete file: {file_name} (ID: {file_id})")
             
-            # 执行删除操作
-            self.service.files().delete(fileId=file_id).execute()
+            # 执行删除操作 - 移动到回收站而不是永久删除
+            # 共享驱动器不支持永久删除，只能移动到回收站
+            self.service.files().update(
+                fileId=file_id,
+                body={'trashed': True},
+                supportsAllDrives=True
+            ).execute()
             
-            logger.success(f"Successfully deleted file from Google Drive: {file_name}")
+            logger.success(f"Successfully moved file to trash: {file_name}")
             return True
             
         except HttpError as e:

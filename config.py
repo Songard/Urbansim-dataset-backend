@@ -55,7 +55,7 @@ class Config:
     CLEAN_TEMP_FILES = os.getenv('CLEAN_TEMP_FILES', 'True').lower() == 'true'
     
     # Google Drive 文件删除配置
-    AUTO_DELETE_SOURCE_FILES = os.getenv('AUTO_DELETE_SOURCE_FILES', 'False').lower() == 'true'
+    AUTO_DELETE_SOURCE_FILES = os.getenv('AUTO_DELETE_SOURCE_FILES', 'True').lower() == 'true'  # 启用自动删除
     DELETE_ONLY_AFTER_HF_SUCCESS = os.getenv('DELETE_ONLY_AFTER_HF_SUCCESS', 'True').lower() == 'true'
     
     # 数据存储路径
