@@ -638,9 +638,26 @@ class GoogleDriveMonitorSystem:
                     if 'metadata' not in data_validation_result:
                         data_validation_result['metadata'] = {}
                     data_validation_result['metadata']['processing_pipeline'] = processing_results
-                
+
                 # 更新sheets_record的validation_result
                 sheets_record['validation_result'] = data_validation_result
+
+                # 【关键修复】如果处理成功，更新关键状态字段
+                if processing_results.get('overall_success', False):
+                    # 检查是否成功找到了输出文件
+                    final_package_path = processing_results.get('final_package_path')
+                    if final_package_path:
+                        # 处理完全成功，更新状态
+                        sheets_record['extract_status'] = 'Success (Processing Completed)'
+                        sheets_record['error_message'] = ''  # 清除错误信息
+
+                        # 如果原始验证分数低，但处理成功，可以适当调整显示
+                        original_score = data_validation_result.get('score', 0) if data_validation_result else 0
+                        if original_score < 60:  # 如果原始分数较低但处理成功
+                            sheets_record['validation_score'] = f"{original_score:.1f}/100 (Processing: Success)"
+                    else:
+                        # 处理运行但没有最终包
+                        sheets_record['extract_status'] = 'Partial Success (Processing Issues)'
             
             # 写入Google Sheets（包含处理结果信息）
             if self.sheets_writer.append_record_v2(sheets_record):

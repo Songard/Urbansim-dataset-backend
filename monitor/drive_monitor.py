@@ -11,8 +11,9 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from config import Config
+from utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class DriveMonitor:
     """
@@ -386,7 +387,7 @@ class DriveMonitor:
                 supportsAllDrives=True
             ).execute()
             
-            logger.success(f"Successfully moved file to processed folder: {file_name}")
+            logger.info(f"Successfully moved file to processed folder: {file_name}")
             return True
             
         except HttpError as e:

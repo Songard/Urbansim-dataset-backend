@@ -1,7 +1,7 @@
 import os
 import sys
 import logging
-from logging.handlers import RotatingFileHandler
+from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 from datetime import datetime
 import colorama
 from colorama import Fore, Back, Style
@@ -72,12 +72,34 @@ class StructuredLogger:
             root_logger.removeHandler(handler)
         
         # 创建文件处理器（支持轮转）
-        file_handler = RotatingFileHandler(
-            Config.LOG_FILE,
-            maxBytes=Config.LOG_MAX_SIZE,
-            backupCount=Config.LOG_BACKUP_COUNT,
-            encoding='utf-8'
-        )
+        try:
+            # 使用基于时间的轮转，更稳定
+            file_handler = TimedRotatingFileHandler(
+                Config.LOG_FILE,
+                when='midnight',
+                interval=1,
+                backupCount=Config.LOG_BACKUP_COUNT,
+                encoding='utf-8',
+                delay=True
+            )
+            file_handler.suffix = "%Y-%m-%d"
+        except (PermissionError, OSError) as e:
+            try:
+                # 尝试大小轮转
+                file_handler = RotatingFileHandler(
+                    Config.LOG_FILE,
+                    maxBytes=Config.LOG_MAX_SIZE,
+                    backupCount=Config.LOG_BACKUP_COUNT,
+                    encoding='utf-8',
+                    delay=True
+                )
+            except (PermissionError, OSError) as e2:
+                # 如果轮转文件处理器失败，则使用普通文件处理器
+                print(f"Warning: Cannot create rotating log handler: {e}, {e2}")
+                file_handler = logging.FileHandler(
+                    Config.LOG_FILE,
+                    encoding='utf-8'
+                )
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(FileFormatter())
         
