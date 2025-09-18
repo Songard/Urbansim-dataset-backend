@@ -53,33 +53,40 @@ def validate_metacam(target_path: str, validation_level: ValidationLevel = Valid
 
     # Stage 2: Transient object detection (if available and images exist)
     if TransientValidator is None:
-        logger.info("TransientValidator not available, skipping transient detection")
+        logger.error("TransientValidator not available, validation cannot proceed")
+        base_result.is_valid = False
+        base_result.errors.append("Transient detection is required but TransientValidator is not available")
+        base_result.score = max(0, base_result.score - 50)  # Significant score penalty
+        base_result.summary = f"Validation FAILED - TransientValidator not available (Score: {base_result.score:.1f}/100)"
         base_result.metadata['pipeline_stage'] = 'basic_format'
-        base_result.metadata['pipeline_completed'] = True
-        base_result.metadata['transient_detection_skipped'] = 'TransientValidator not available'
+        base_result.metadata['pipeline_completed'] = False
+        base_result.metadata['transient_detection_error'] = 'TransientValidator not available'
         return base_result
 
-    # Check for images directory
+    # Check for camera directory (required for transient detection)
     import os
-    images_path = os.path.join(target_path, "images")
-    actual_images_path = None
+    camera_path = os.path.join(target_path, "camera")
+    actual_camera_path = None
 
-    if os.path.exists(images_path):
-        actual_images_path = images_path
+    if os.path.exists(camera_path):
+        actual_camera_path = camera_path
     else:
-        # Search in subdirectories
+        # Search in subdirectories (handle nested extraction)
         try:
             for item in os.listdir(target_path):
                 item_path = os.path.join(target_path, item)
                 if os.path.isdir(item_path):
-                    sub_images_path = os.path.join(item_path, "images")
-                    if os.path.exists(sub_images_path):
-                        actual_images_path = sub_images_path
+                    sub_camera_path = os.path.join(item_path, "camera")
+                    if os.path.exists(sub_camera_path):
+                        actual_camera_path = sub_camera_path
+                        # Also update target_path to the actual root
+                        target_path = item_path
+                        logger.info(f"Found camera directory in subdirectory, updating target_path to: {target_path}")
                         break
         except:
             pass
 
-    if actual_images_path:
+    if actual_camera_path:
         logger.info("Running transient object detection")
         try:
             transient_validator = TransientValidator()
@@ -94,18 +101,31 @@ def validate_metacam(target_path: str, validation_level: ValidationLevel = Valid
             return combined_result
 
         except Exception as e:
-            logger.warning(f"Transient validation failed: {e}")
-            base_result.warnings.append(f"Transient detection failed: {e}")
+            logger.error(f"Transient validation failed: {e}")
+            base_result.is_valid = False
+            base_result.errors.append(f"Transient detection failed: {e}")
+            base_result.score = max(0, base_result.score - 30)  # Score penalty for failed detection
+            base_result.summary = f"Validation FAILED - Transient detection error (Score: {base_result.score:.1f}/100)"
             base_result.metadata['pipeline_stage'] = 'basic_format'
             base_result.metadata['pipeline_completed'] = False
             base_result.metadata['transient_detection_error'] = str(e)
+            return base_result
     else:
-        logger.info("No images directory found, skipping transient detection")
-        base_result.metadata['transient_detection_skipped'] = 'No images directory found'
+        logger.error("No camera directory found, transient detection cannot be performed")
+        base_result.is_valid = False
+        base_result.errors.append("Camera directory not found - transient detection is required for validation")
+        base_result.score = max(0, base_result.score - 40)  # Score penalty for missing camera data
+        base_result.summary = f"Validation FAILED - No camera directory (Score: {base_result.score:.1f}/100)"
+        base_result.metadata['transient_detection_error'] = 'No camera directory found'
+        base_result.metadata['pipeline_stage'] = 'basic_format'
+        base_result.metadata['pipeline_completed'] = False
+        return base_result
 
+    # This should never be reached if transient detection is required
+    logger.error("Unexpected state: transient detection was not performed")
+    base_result.is_valid = False
     base_result.metadata['pipeline_stage'] = 'basic_format'
-    base_result.metadata['pipeline_completed'] = True
-    logger.info(f"Pipeline validation completed: {base_result.summary}")
+    base_result.metadata['pipeline_completed'] = False
     return base_result
 
 

@@ -614,7 +614,15 @@ class GoogleDriveMonitorSystem:
                     logger.info("数据处理已禁用")
                 elif not data_validation_result or not data_validation_result.get('is_valid', False):
                     processing_status = "跳过（验证未通过）"
-                    logger.info("跳过数据处理：数据验证未通过")
+                    # 获取具体的验证失败原因
+                    if data_validation_result:
+                        errors = data_validation_result.get('errors', [])
+                        if errors:
+                            logger.warning(f"跳过数据处理：数据验证未通过 - {'; '.join(errors[:2])}")  # 显示前两个错误
+                        else:
+                            logger.warning("跳过数据处理：数据验证未通过")
+                    else:
+                        logger.warning("跳过数据处理：数据验证未通过")
                 else:
                     processing_status = "跳过（条件不满足）"
                     logger.info("跳过数据处理：条件不满足")
