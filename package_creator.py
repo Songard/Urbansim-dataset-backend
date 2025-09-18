@@ -18,7 +18,7 @@ from typing import Dict, Optional, List
 
 from config import Config
 from utils.logger import get_logger
-from utils.colmap_utils import generate_colmap_format
+from utils.colmap_utils import generate_nvs_format
 
 logger = get_logger(__name__)
 
@@ -282,7 +282,7 @@ def create_final_package(
                     camera_dirs = [d for d in Path(original_path).rglob("camera") if d.is_dir()]
                     if camera_dirs:
                         shutil.copytree(camera_dirs[0], temp_package_dir / "camera")
-                nvs_success, split_info = generate_colmap_format(
+                nvs_success, split_info = generate_nvs_format(
                     output_dir=str(temp_package_dir),
                     transforms_json_path=str(transforms_json_path),
                     original_data_path=str(temp_package_dir),
@@ -741,7 +741,7 @@ def _create_archive_package(original_path: str, output_files: Dict[str, str], ba
             elif output_files.get('colorized_las'):
                 colorized_las_path = output_files['colorized_las']
             
-            nvs_success, split_info = generate_colmap_format(
+            nvs_success, split_info = generate_nvs_format(
                 output_dir=str(temp_archive_dir),
                 transforms_json_path=str(transforms_json_path),
                 original_data_path=str(temp_archive_dir),

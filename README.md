@@ -318,21 +318,28 @@ The system performs comprehensive validation of MetaCam data packages. For detai
 
 ### Quick Validation Overview
 
-| Validation Type | Purpose | Fail Conditions |
-|----------------|---------|-----------------|
-| **File Structure** | Ensures required directories and files exist | Missing critical files/folders |
-| **Metadata** | Validates recording information and duration | Invalid duration (<3min or >9min) |
-| **Point Cloud Scale** | Verifies spatial scale for reconstruction | Scale outside acceptable range |
-| **Transient Detection** | AI analysis for moving obstacles | High obstacle density (configurable) |
-| **Device Information** | Extracts and validates device metadata | Missing device info |
+| Validation Type | Purpose | Fail Conditions (blocks processing?) |
+|----------------|---------|---------------------------------------|
+| **File Structure** | Ensures required directories and files exist | Missing critical files/folders (Yes) |
+| **Metadata** | Validates recording information and duration | Invalid duration (<3min or >9min) (Yes) |
+| **Camera Directory** | Required for transient detection | Missing camera directory (Yes - NEW) |
+| **Transient Detection** | AI analysis for moving obstacles | Cannot run or fails (Yes - NEW) |
+| **Point Cloud Scale** | Verifies spatial scale for reconstruction | Scale outside range (No - warning only) |
+| **Device Information** | Extracts and validates device metadata | Missing device info (No - warning only) |
+
+**Important Note on Scoring**:
+- **Score (0-100)**: Quality metric for tracking and reporting
+- **is_valid (True/False)**: The actual gate for processing
+- Processing requires `is_valid=True`, NOT a minimum score
+- Missing camera directory or failed transient detection now sets `is_valid=False`
 
 ### Validation Results
 
 The system provides color-coded validation results in Google Sheets:
 
-- 🟢 **Green**: Validation passed, data ready for processing
-- 🟡 **Yellow**: Warnings detected, manual review recommended  
-- 🔴 **Red**: Critical errors, data rejected
+- 🟢 **Green**: Validation passed (is_valid=True, score≥90), processing will proceed
+- 🟡 **Yellow**: Warnings present (is_valid=True, score 70-89), processing continues
+- 🔴 **Red**: Critical errors (is_valid=False), processing blocked regardless of score
 - ⚪ **Gray**: Processing incomplete or unknown status
 
 ## Google Sheets Output

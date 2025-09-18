@@ -249,10 +249,10 @@ This stage analyzes camera image sequences for moving obstacles (people, dogs, e
 Combined Score = (Basic Format Score × 0.7) + (Transient Detection Score × 0.3)
 ```
 
-**Overall Validation Logic**:
-- **PASS**: Basic format validation passes (regardless of transient detection)
-- **Enhanced PASS**: Both basic format and transient detection pass
-- **FAIL**: Basic format validation fails
+**Overall Validation Logic** (After Recent Updates):
+- **PASS**: Both basic format AND transient detection must pass
+- **FAIL**: Either basic format validation fails OR transient detection cannot be performed
+- **Note**: Transient detection is now mandatory - missing camera directory will fail validation
 
 **Metadata Integration**:
 - Transient detection results added to validation metadata
@@ -271,10 +271,33 @@ Combined Score = (Basic Format Score × 0.7) + (Transient Detection Score × 0.3
 
 ## Validation Results & Error Handling
 
+### Score vs is_valid Mechanism
+
+**Important**: The validation system uses two separate mechanisms:
+
+1. **Score (0-100)**: A quality metric indicating overall data quality
+   - Starting score: 100 points
+   - Each error: -15 points
+   - Each warning: -3 points
+   - Each missing file/directory: -15 points
+   - Used for: Quality tracking, Google Sheets display, analysis
+
+2. **is_valid (True/False)**: The gate for processing
+   - Based on **error count**, NOT score
+   - STRICT mode: No errors allowed
+   - STANDARD mode: No critical errors, ≤2 missing files allowed
+   - LENIENT mode: Only critical errors block processing
+   - **This determines if data proceeds to 3D reconstruction**
+
+**Key Point**: A data package can have a low score (e.g., 40/100) but still have `is_valid=True` if it has no critical errors. However, with recent changes:
+- Missing camera directory → is_valid=False (blocks processing)
+- TransientValidator failure → is_valid=False (blocks processing)
+- MetaCam format errors → is_valid=False (blocks processing)
+
 ### Status Levels
-- **PASS**: All critical validations successful, data ready for processing
-- **WARNING**: Minor issues detected, manual review recommended but processing can continue
-- **ERROR**: Critical issues detected, data rejected and processing halted
+- **PASS**: All critical validations successful (is_valid=True), data ready for processing
+- **WARNING**: Minor issues detected, manual review recommended but processing can continue if is_valid=True
+- **ERROR**: Critical issues detected (is_valid=False), data rejected and processing halted
 
 ### Enhanced Error Messaging
 

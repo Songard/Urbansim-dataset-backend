@@ -34,7 +34,15 @@ class ValidationLevel(Enum):
 class ValidationResult:
     """
     Standardized validation result structure
-    
+
+    IMPORTANT: Score vs is_valid Mechanism
+    =======================================
+    - score (0-100): Quality metric for tracking/reporting, NOT a gate
+    - is_valid (True/False): The actual gate that determines if processing proceeds
+    - A package can have low score (e.g., 40/100) but still process if is_valid=True
+    - is_valid is based on error count/type, NOT on score threshold
+    - Only is_valid=False blocks 3D reconstruction processing
+
     数据契约要求：
     ===== METADATA结构契约 =====
     metadata必须包含：

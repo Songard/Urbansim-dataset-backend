@@ -1308,14 +1308,10 @@ class DataProcessor:
             
             # Search for colorized.las (or alternative point cloud files)
             if not result['colorized_las']:
-                logger.info(f"  → Searching for point cloud files (colorized.las, uncolorized.ply, etc.)...")
+                logger.info(f"  → Searching for point cloud files (colorized.las,  etc.)...")
                 # Try multiple possible file names and extensions
                 patterns = [
                     'colorized.las', '**/colorized.las',
-                    'uncolorized.ply', '**/uncolorized.ply', 
-                    'colorized.ply', '**/colorized.ply',
-                    '*.las', '**//*.las',
-                    '*.ply', '**//*.ply'
                 ]
                 
                 for pattern in patterns:
