@@ -21,7 +21,9 @@
       "Read(/C:\\Users\\15436\\Documents\\MyPrograms\\Urbansim\\processors/**)",
       "Read(/C:\\Users\\15436\\Documents\\MyPrograms\\Urbansim\\processors/**)",
       "Read(/C:\\Users\\15436\\Documents\\MyPrograms\\Urbansim\\processors/**)",
-      "Read(/C:\\Users\\15436\\Documents\\MyPrograms\\Urbansim/**)"
+      "Read(/C:\\Users\\15436\\Documents\\MyPrograms\\Urbansim/**)",
+      "Bash(dir validation)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "defaultMode": "acceptEdits"

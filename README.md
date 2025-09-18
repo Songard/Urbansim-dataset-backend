@@ -269,7 +269,7 @@ Options:
 python main.py --file /path/to/archive.zip
 
 # Test validation only
-python -m validation.manager /path/to/extracted/data
+python -c "from validation import validate_metacam; print(validate_metacam('/path/to/extracted/data'))"
 
 # Check system connectivity
 python main.py --test-connection
@@ -437,9 +437,11 @@ Urbansim/
 │   └── data_processor.py           # 3D reconstruction processing pipeline
 ├── 
 ├── validation/                      # Data validation system
-│   ├── manager.py                  # Validation pipeline coordinator
+│   ├── __init__.py                 # Direct validation functions
 │   ├── base.py                     # Base validation framework
 │   ├── metacam.py                  # MetaCam format validator
+│   ├── archive_metacam.py          # Archive MetaCam validator
+│   ├── processed_metacam.py        # Processed MetaCam validator
 │   └── transient_validator.py      # AI-based quality assessment
 ├── 
 ├── detection/                       # AI detection components
@@ -476,7 +478,7 @@ To add a new validation component:
 
 1. Create a new validator class inheriting from `BaseValidator`
 2. Implement required validation methods
-3. Register the validator in `validation/manager.py`
+3. Add a new validation function in `validation/__init__.py`
 4. Update `data_schemas/` with any new schema requirements
 5. Modify `sheets/data_mapper.py` to handle new output fields
 

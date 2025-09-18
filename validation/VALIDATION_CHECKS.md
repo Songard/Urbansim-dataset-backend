@@ -325,42 +325,83 @@ All validation results are:
 
 ## Usage
 
-### Automatic Pipeline Validation
+### Direct Validation Functions
 
-The validation system runs automatically when processing MetaCam data packages. The system detects MetaCam format and triggers pipeline validation:
+The validation system provides simple, direct functions for each validation type:
 
 ```python
-from validation.manager import ValidationManager
+from validation import validate_metacam, validate_archive_metacam, validate_processed_metacam
 
-validator = ValidationManager()
-# Automatically detects MetaCam format and runs pipeline validation
-results = validator.validate("/path/to/metacam/data")
+# Validate original MetaCam data (includes pipeline with transient detection)
+result = validate_metacam("/path/to/metacam/data")
+
+# Validate archive MetaCam data
+result = validate_archive_metacam("/path/to/archive/data")
+
+# Validate processed MetaCam data
+result = validate_processed_metacam("/path/to/processed/data")
+
+# Run only transient detection (requires images directory)
+from validation import validate_transient_only
+result = validate_transient_only("/path/to/data")
 ```
 
-### Manual Validator Selection
+### Validation Levels
 
-You can also run individual validators manually:
+All validation functions support different strictness levels:
 
 ```python
-# Run only basic format validation
-results = validator.validate("/path/to/data", validator_name="MetaCamValidator")
+from validation import ValidationLevel
 
-# Run only transient detection (requires camera directory)
-results = validator.validate("/path/to/data", validator_name="TransientValidator")
+# Strict validation (all checks must pass)
+result = validate_metacam("/path/to/data", ValidationLevel.STRICT)
+
+# Standard validation (default)
+result = validate_metacam("/path/to/data", ValidationLevel.STANDARD)
+
+# Lenient validation (allows some missing optional components)
+result = validate_metacam("/path/to/data", ValidationLevel.LENIENT)
 ```
 
 ### Pipeline Validation Results
 
-Pipeline validation returns enhanced results with combined metrics:
+The `validate_metacam()` function automatically runs pipeline validation (MetaCam + Transient detection) and returns enhanced results:
 
 ```python
-if results.validator_type == "Pipeline(MetaCam+Transient)":
+result = validate_metacam("/path/to/metacam/data")
+
+# Check if pipeline validation was completed
+if result.validator_type == "Pipeline(MetaCam+Transient)":
     # Access pipeline-specific metadata
-    pipeline_info = results.metadata['validation_pipeline']
+    pipeline_info = result.metadata['validation_pipeline']
     base_score = pipeline_info['base_validation']['score']
     transient_score = pipeline_info['transient_validation']['score']
     combined_score = pipeline_info['combined_score']
+
+    print(f"Base validation: {base_score}")
+    print(f"Transient detection: {transient_score}")
+    print(f"Combined score: {combined_score}")
+
+# Access transient detection results (if available)
+if 'transient_validation' in result.metadata:
+    transient_info = result.metadata['transient_validation']
+    if 'transient_detection' in transient_info:
+        detection = transient_info['transient_detection']
+        wdd = detection.get('WDD', 'N/A')
+        wpo = detection.get('WPO', 'N/A')
+        sai = detection.get('SAI', 'N/A')
+        print(f"WDD: {wdd}, WPO: {wpo}, SAI: {sai}")
 ```
+
+### Simple API Design
+
+The new validation API is designed to be simple and direct:
+
+- **No complex managers or registrations** - just import and call
+- **Clear function names** - each validator has its own function
+- **Consistent interface** - all functions take the same parameters
+- **Automatic pipeline logic** - `validate_metacam()` includes transient detection
+- **Preserved functionality** - all existing validation logic is maintained
 
 ## Maintenance
 
@@ -372,5 +413,5 @@ This documentation should be updated whenever:
 
 ---
 
-*Last Updated: 2025-08-15 - Enhanced Error Handling and Device ID Extraction*
-*Version: 3.0 - Complete validation pipeline with improved error messaging, device ID extraction, and flexible file naming support*
+*Last Updated: 2025-09-17 - Simplified Validation API*
+*Version: 4.0 - Simplified direct function API, removed complex ValidationManager, maintained all validation functionality*

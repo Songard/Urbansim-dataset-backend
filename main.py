@@ -26,7 +26,7 @@ from monitor.file_tracker import FileTracker
 from monitor.file_downloader import FileDownloader
 from monitor.archive_handler import ArchiveHandler
 from sheets.sheets_writer import SheetsWriter
-from validation.manager import ValidationManager
+# ValidationManager removed - using direct validation functions now
 from processors.data_processor import DataProcessor
 from utils.error_formatter import ErrorFormatter
 from utils.huggingface_uploader import upload_processed_package
@@ -99,7 +99,7 @@ class GoogleDriveMonitorSystem:
             self.file_downloader = FileDownloader()
             self.archive_handler = ArchiveHandler()
             self.sheets_writer = SheetsWriter()
-            self.validation_manager = ValidationManager()
+            # ValidationManager removed - using direct validation functions now
             self.data_processor = DataProcessor()
             
             # 初始化邮件通知器（如果启用且可用）
