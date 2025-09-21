@@ -708,7 +708,66 @@ class GoogleDriveMonitorSystem:
             from utils.error_formatter import ErrorFormatter
             formatted_time = ErrorFormatter.format_duration_seconds(process_time)
             logger.success(f"文件处理完成: {file_name} (耗时 {formatted_time})")
-            
+
+            # Check if HuggingFace upload was successful; if not, move to failed folder
+            should_move_to_failed = False
+            hf_failure_reason = ""
+
+            if not Config.ENABLE_HF_UPLOAD:
+                # HF upload is disabled, consider as failure
+                should_move_to_failed = True
+                hf_failure_reason = "HF upload disabled by configuration"
+            elif processing_results:
+                hf_upload_result = processing_results.get('hf_upload_result')
+                if hf_upload_result:
+                    if hf_upload_result.get('skipped'):
+                        # Upload was skipped, consider as failure
+                        should_move_to_failed = True
+                        hf_failure_reason = f"HF upload skipped: {hf_upload_result.get('reason', 'unknown')}"
+                    elif not hf_upload_result.get('success', False):
+                        # Upload failed
+                        should_move_to_failed = True
+                        hf_failure_reason = f"HF upload failed: {hf_upload_result.get('error', 'unknown error')}"
+                else:
+                    # No HF upload result, likely because final package creation failed
+                    should_move_to_failed = True
+                    hf_failure_reason = "No HF upload attempted (likely package creation failed)"
+            else:
+                # HF upload is enabled but no processing results available
+                should_move_to_failed = True
+                hf_failure_reason = "HF upload enabled but no processing results available"
+
+            if should_move_to_failed:
+                logger.warning(f"Moving file to failed folder due to HF upload issue: {hf_failure_reason}")
+
+                # Move the file to failed folder in Google Drive
+                if self.drive_monitor:
+                    try:
+                        move_success = self.drive_monitor.move_failed_file(file_id)
+                        if move_success:
+                            logger.info(f"File moved to failed_files folder due to HF upload failure: {file_name}")
+                        else:
+                            logger.warning(f"Could not move file to failed_files folder: {file_name}")
+                    except Exception as move_error:
+                        logger.error(f"Error moving file to failed_files folder: {move_error}")
+
+                # Update file tracker status to reflect the failure
+                self.file_tracker.add_processed_file(
+                    file_id,
+                    file_name,
+                    status="failed",
+                    metadata={
+                        'error': hf_failure_reason,
+                        'original_processing': 'success',
+                        'failure_reason': 'hf_upload_unsuccessful'
+                    }
+                )
+
+                self.stats['files_failed'] += 1
+                self.stats['files_processed'] -= 1  # Adjust the count since this is now a failure
+
+                return False
+
             return True
             
         except Exception as e:
@@ -963,7 +1022,18 @@ class GoogleDriveMonitorSystem:
             )
             
             self.stats['files_failed'] += 1
-            
+
+            # Move failed file to Google Drive failed_files folder
+            if self.drive_monitor:
+                try:
+                    move_success = self.drive_monitor.move_failed_file(file_info['id'])
+                    if move_success:
+                        logger.info(f"Failed file moved to failed_files folder: {file_info['name']}")
+                    else:
+                        logger.warning(f"Could not move failed file to failed_files folder: {file_info['name']}")
+                except Exception as move_error:
+                    logger.error(f"Error moving failed file to failed_files folder: {move_error}")
+
         except Exception as e:
             logger.error(f"记录失败信息时出错: {e}")
     

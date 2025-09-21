@@ -401,10 +401,104 @@ class DriveMonitor:
             logger.error(f"Error moving file {file_id}: {e}")
             return False
     
+    def move_failed_file(self, file_id: str) -> bool:
+        """
+        将处理失败的文件移动到failed子目录
+
+        Args:
+            file_id (str): 要移动的文件ID
+
+        Returns:
+            bool: 移动是否成功
+        """
+        try:
+            # 先获取文件信息用于日志记录
+            file_metadata = self.get_file_metadata(file_id)
+            file_name = file_metadata.get('name', 'Unknown') if file_metadata else 'Unknown'
+
+            logger.info(f"Attempting to move failed file to failed folder: {file_name} (ID: {file_id})")
+
+            # 确保failed目录存在
+            failed_folder_id = self._ensure_failed_folder()
+            if not failed_folder_id:
+                logger.error("Failed to create or find failed folder")
+                return False
+
+            # 获取当前父目录
+            current_parents = file_metadata.get('parents', []) if file_metadata else []
+
+            # 移动文件到failed目录
+            self.service.files().update(
+                fileId=file_id,
+                addParents=failed_folder_id,
+                removeParents=','.join(current_parents),
+                fields='id, parents',
+                supportsAllDrives=True
+            ).execute()
+
+            logger.info(f"Successfully moved failed file to failed folder: {file_name}")
+            return True
+
+        except HttpError as e:
+            if e.resp.status == 404:
+                logger.warning(f"File {file_id} not found, may have been already moved")
+                return True  # 文件不存在也算成功
+            else:
+                logger.error(f"HTTP error moving failed file {file_id}: {e}")
+                return False
+        except Exception as e:
+            logger.error(f"Error moving failed file {file_id}: {e}")
+            return False
+
+    def _ensure_failed_folder(self) -> Optional[str]:
+        """
+        确保failed_files子目录存在，如果不存在则创建
+
+        Returns:
+            Optional[str]: failed目录的ID，失败时返回None
+        """
+        try:
+            failed_folder_name = "failed_files"
+
+            # 检查子目录是否已存在
+            existing_folders = self.service.files().list(
+                q=f"'{self.folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and name='{failed_folder_name}' and trashed=false",
+                fields="files(id, name)",
+                supportsAllDrives=True
+            ).execute()
+
+            folders = existing_folders.get('files', [])
+
+            if folders:
+                failed_folder_id = folders[0]['id']
+                logger.debug(f"Found existing failed folder: {failed_folder_id}")
+                return failed_folder_id
+            else:
+                # 创建子目录
+                folder_metadata = {
+                    'name': failed_folder_name,
+                    'mimeType': 'application/vnd.google-apps.folder',
+                    'parents': [self.folder_id]
+                }
+
+                created_folder = self.service.files().create(
+                    body=folder_metadata,
+                    fields='id, name',
+                    supportsAllDrives=True
+                ).execute()
+
+                failed_folder_id = created_folder['id']
+                logger.info(f"Created failed folder: {failed_folder_id}")
+                return failed_folder_id
+
+        except Exception as e:
+            logger.error(f"Error ensuring failed folder exists: {e}")
+            return None
+
     def _ensure_processed_folder(self) -> Optional[str]:
         """
         确保processed_files子目录存在，如果不存在则创建
-        
+
         Returns:
             Optional[str]: processed目录的ID，失败时返回None
         """
