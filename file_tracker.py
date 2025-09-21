@@ -14,11 +14,65 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from config import Config
-from utils.logger import get_logger
 from monitor.drive_monitor import DriveMonitor
 from utils.validators import validate_scene_naming
 
-logger = get_logger(__name__)
+# Create independent logger for file_tracker to avoid conflicts with main.py
+import logging
+from logging.handlers import RotatingFileHandler
+
+def setup_tracker_logger():
+    """Setup independent logger for file tracker"""
+    logger = logging.getLogger('file_tracker')
+
+    # Avoid duplicate handlers if logger already exists
+    if logger.handlers:
+        return logger
+
+    # Set log level based on Config
+    log_level = getattr(logging, Config.LOG_LEVEL.upper(), logging.INFO)
+    logger.setLevel(log_level)
+
+    # Create logs directory if it doesn't exist
+    log_dir = Path('logs')
+    log_dir.mkdir(exist_ok=True)
+
+    # File handler with rotation (separate from main.py log)
+    file_handler = RotatingFileHandler(
+        log_dir / 'file_tracker.log',
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    file_handler.setLevel(log_level)
+
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(log_level)
+
+    # Formatter
+    formatter = logging.Formatter(
+        '[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    # Add success method
+    def success(self, message, *args, **kwargs):
+        if self.isEnabledFor(25):  # SUCCESS level
+            self._log(25, message, args, **kwargs)
+
+    logging.addLevelName(25, "SUCCESS")
+    logging.Logger.success = success
+
+    return logger
+
+logger = setup_tracker_logger()
 
 class SimpleFileTracker:
     """
