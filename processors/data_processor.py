@@ -908,7 +908,7 @@ class DataProcessor:
                 return None
             
             # Check if there's already a single subdirectory that might be the data directory
-            subdirs = [item for item in all_items if item.is_dir()]
+            subdirs = [item for item in all_items if item.is_dir() and item.name != "_MACOSX"]
             files = [item for item in all_items if item.is_file()]
             
             # If we have exactly one subdirectory and no files, check if it contains a data subdirectory
