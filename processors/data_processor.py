@@ -221,15 +221,15 @@ class DataProcessor:
             
             logger.info("validation_generator completed successfully")
             
-            # Step 2: Run metacam_cli.exe on the standardized parent directory
-            step2_result = self._run_metacam_cli_direct(standardized_path, validation_result)
+            # Step 2: Run metacam_cli.exe on the standardized parent directory (with retry)
+            step2_result = self._run_metacam_cli_with_retry(standardized_path, validation_result)
             processing_results['processing_steps'].append({
                 'step': 'metacam_cli',
                 'result': step2_result.to_dict()
             })
             
             if not step2_result.success:
-                error_msg = f"metacam_cli failed: {step2_result.error}"
+                error_msg = f"metacam_cli failed after {Config.PROCESSING_RETRY_ATTEMPTS} attempts: {step2_result.error}"
                 processing_results['errors'].append(error_msg)
                 logger.error(error_msg)
                 logger.warning("metacam_cli failed, but continuing with post-processing to check for any output files...")
@@ -740,32 +740,49 @@ class DataProcessor:
             
             logger.info(f"metacam_cli processing completed in {duration_str}")
             
-            # Check for output files to verify success
+            # Check for output files using comprehensive search (same as post-processing)
+            package_name = Path(standardized_path).name
+            found_files = self._find_processing_output_files(package_name)
+            
+            # Log what we found in the configured output directory for debugging
             output_files = list(output_dir.glob("*"))
             if output_files:
-                logger.info(f"Generated {len(output_files)} output files in: {output_dir}")
+                logger.info(f"Files found in configured output directory {output_dir}:")
                 for output_file in output_files[:5]:  # Log first 5 files
                     size_mb = output_file.stat().st_size / (1024 * 1024)
                     logger.info(f"  {output_file.name} ({size_mb:.1f} MB)")
                 if len(output_files) > 5:
                     logger.info(f"  ... and {len(output_files) - 5} more files")
+            else:
+                logger.info(f"No files found in configured output directory: {output_dir}")
             
-            # Determine success based on return code and output presence
-            success = result.success and len(output_files) > 0
+            # Determine success based on return code AND comprehensive file search
+            files_found = found_files['colorized_las'] is not None or found_files['transforms_json'] is not None
+            success = result.success and files_found
             
             if success:
                 logger.info(f"metacam_cli completed successfully")
+                if found_files['colorized_las']:
+                    logger.info(f"  ✓ Point cloud file found: {found_files['colorized_las']}")
+                if found_files['transforms_json']:
+                    logger.info(f"  ✓ Transforms file found: {found_files['transforms_json']}")
             else:
                 logger.error(f"metacam_cli failed with return code {result.return_code}")
-                if not output_files:
-                    logger.error("No output files generated")
+                if not files_found:
+                    logger.error("No required output files found in any search location")
+                    missing_files = []
+                    if not found_files['colorized_las']:
+                        missing_files.append('point cloud file (colorized.las/uncolorized.ply)')
+                    if not found_files['transforms_json']:
+                        missing_files.append('transforms.json')
+                    logger.error(f"Missing: {', '.join(missing_files)}")
             
             # Update the result with file generation status
             final_result = ProcessingResult(
                 success=success,
                 command=result.command,
                 output=result.output,
-                error=result.error if result.error else ("No output files generated" if not success else ""),
+                error=result.error if result.error else ("No required output files found" if not success else ""),
                 return_code=result.return_code,
                 duration=result.duration
             )
@@ -891,7 +908,7 @@ class DataProcessor:
                 return None
             
             # Check if there's already a single subdirectory that might be the data directory
-            subdirs = [item for item in all_items if item.is_dir()]
+            subdirs = [item for item in all_items if item.is_dir() and  "_MACOSX" not in item.name]            
             files = [item for item in all_items if item.is_file()]
             
             # If we have exactly one subdirectory and no files, check if it contains a data subdirectory
@@ -982,6 +999,49 @@ class DataProcessor:
         return extension in data_extensions
     
     
+    def _run_metacam_cli_with_retry(self, standardized_path: str, validation_result: Dict) -> ProcessingResult:
+        """
+        Run metacam_cli with retry mechanism for failed results
+        
+        Args:
+            standardized_path: Path to directory that already contains 'data' subdirectory
+            validation_result: Validation result containing scene and scale information
+            
+        Returns:
+            ProcessingResult with execution details (includes retry information)
+        """
+        max_attempts = Config.PROCESSING_RETRY_ATTEMPTS
+        last_result = None
+        
+        for attempt in range(1, max_attempts + 1):
+            logger.info(f"metacam_cli attempt {attempt}/{max_attempts}")
+            
+            # Run metacam_cli
+            result = self._run_metacam_cli_direct(standardized_path, validation_result)
+            
+            if result.success:
+                if attempt > 1:
+                    logger.info(f"metacam_cli succeeded on attempt {attempt}")
+                return result
+            else:
+                last_result = result
+                logger.warning(f"metacam_cli attempt {attempt} failed: {result.error}")
+                
+                if attempt < max_attempts:
+                    logger.info(f"Retrying metacam_cli (attempt {attempt + 1}/{max_attempts})...")
+                else:
+                    logger.error(f"metacam_cli failed after {max_attempts} attempts")
+        
+        # Return the last failed result with retry information
+        if last_result:
+            last_result.error = f"Failed after {max_attempts} attempts. Last error: {last_result.error}"
+        
+        return last_result or ProcessingResult(
+            success=False,
+            command="metacam_cli (retry)",
+            error=f"Failed after {max_attempts} attempts - no result available"
+        )
+    
     def _run_metacam_cli_direct(self, standardized_path: str, validation_result: Dict) -> ProcessingResult:
         """
         Execute metacam_cli.exe on a pre-standardized directory path
@@ -1070,32 +1130,49 @@ class DataProcessor:
             
             logger.info(f"metacam_cli processing completed in {duration_str}")
             
-            # Check for output files to verify success
+            # Check for output files using comprehensive search (same as post-processing)
+            package_name = Path(standardized_path).name
+            found_files = self._find_processing_output_files(package_name)
+            
+            # Log what we found in the configured output directory for debugging
             output_files = list(output_dir.glob("*"))
             if output_files:
-                logger.info(f"Generated {len(output_files)} output files in: {output_dir}")
+                logger.info(f"Files found in configured output directory {output_dir}:")
                 for output_file in output_files[:5]:  # Log first 5 files
                     size_mb = output_file.stat().st_size / (1024 * 1024)
                     logger.info(f"  {output_file.name} ({size_mb:.1f} MB)")
                 if len(output_files) > 5:
                     logger.info(f"  ... and {len(output_files) - 5} more files")
+            else:
+                logger.info(f"No files found in configured output directory: {output_dir}")
             
-            # Determine success based on return code and output presence
-            success = result.success and len(output_files) > 0
+            # Determine success based on return code AND comprehensive file search
+            files_found = found_files['colorized_las'] is not None or found_files['transforms_json'] is not None
+            success = result.success and files_found
             
             if success:
                 logger.info(f"metacam_cli completed successfully")
+                if found_files['colorized_las']:
+                    logger.info(f"  ✓ Point cloud file found: {found_files['colorized_las']}")
+                if found_files['transforms_json']:
+                    logger.info(f"  ✓ Transforms file found: {found_files['transforms_json']}")
             else:
                 logger.error(f"metacam_cli failed with return code {result.return_code}")
-                if not output_files:
-                    logger.error("No output files generated")
+                if not files_found:
+                    logger.error("No required output files found in any search location")
+                    missing_files = []
+                    if not found_files['colorized_las']:
+                        missing_files.append('point cloud file (colorized.las/uncolorized.ply)')
+                    if not found_files['transforms_json']:
+                        missing_files.append('transforms.json')
+                    logger.error(f"Missing: {', '.join(missing_files)}")
             
             # Update the result with file generation status
             final_result = ProcessingResult(
                 success=success,
                 command=result.command,
                 output=result.output,
-                error=result.error if result.error else ("No output files generated" if not success else ""),
+                error=result.error if result.error else ("No required output files found" if not success else ""),
                 return_code=result.return_code,
                 duration=result.duration
             )
@@ -1231,14 +1308,10 @@ class DataProcessor:
             
             # Search for colorized.las (or alternative point cloud files)
             if not result['colorized_las']:
-                logger.info(f"  → Searching for point cloud files (colorized.las, uncolorized.ply, etc.)...")
+                logger.info(f"  → Searching for point cloud files (colorized.las,  etc.)...")
                 # Try multiple possible file names and extensions
                 patterns = [
                     'colorized.las', '**/colorized.las',
-                    'uncolorized.ply', '**/uncolorized.ply', 
-                    'colorized.ply', '**/colorized.ply',
-                    '*.las', '**//*.las',
-                    '*.ply', '**//*.ply'
                 ]
                 
                 for pattern in patterns:

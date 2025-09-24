@@ -10,8 +10,7 @@ class Config:
     SERVICE_ACCOUNT_FILE = os.getenv('SERVICE_ACCOUNT_FILE', 'service-account.json')
     
     SCOPES = [
-        'https://www.googleapis.com/auth/drive.readonly',
-        'https://www.googleapis.com/auth/drive.file',  # 添加文件删除权限
+        'https://www.googleapis.com/auth/drive',  # 完整Drive权限（包含读写删除）
         'https://www.googleapis.com/auth/spreadsheets'
     ]
     
@@ -56,7 +55,7 @@ class Config:
     CLEAN_TEMP_FILES = os.getenv('CLEAN_TEMP_FILES', 'True').lower() == 'true'
     
     # Google Drive 文件删除配置
-    AUTO_DELETE_SOURCE_FILES = os.getenv('AUTO_DELETE_SOURCE_FILES', 'False').lower() == 'true'
+    AUTO_DELETE_SOURCE_FILES = os.getenv('AUTO_DELETE_SOURCE_FILES', 'True').lower() == 'true'  # 启用自动删除
     DELETE_ONLY_AFTER_HF_SUCCESS = os.getenv('DELETE_ONLY_AFTER_HF_SUCCESS', 'True').lower() == 'true'
     
     # 数据存储路径
@@ -320,6 +319,26 @@ class Config:
     PACKAGE_INCLUDE_PREVIEW_IMAGE = os.getenv('PACKAGE_INCLUDE_PREVIEW_IMAGE', 'True').lower() == 'true'  # 是否包含预览图
     PACKAGE_INCLUDE_VISUALIZATION = os.getenv('PACKAGE_INCLUDE_VISUALIZATION', 'False').lower() == 'true'  # 是否包含可视化文件
     
+    # 归档配置 (Archive Configuration)
+    ENABLE_ARCHIVE_CREATION = os.getenv('ENABLE_ARCHIVE_CREATION', 'True').lower() == 'true'  # 是否创建完整归档文件
+    ARCHIVE_OUTPUT_PATH = os.getenv('ARCHIVE_OUTPUT_PATH', 'D:/UrbanSim_archive')  # 归档文件保存目录
+    
+    # ========================================
+    # 图像遮挡（人脸/车牌）处理配置 (Image Masking Configuration)
+    # ========================================
+    IMAGE_MASKING_ENABLED = os.getenv('IMAGE_MASKING_ENABLED', 'True').lower() == 'true'
+    IMAGE_MASK_FACE_MODEL_PATH = os.getenv('IMAGE_MASK_FACE_MODEL_PATH', './egoblur/ego_blur_face.jit')
+    IMAGE_MASK_LP_MODEL_PATH = os.getenv('IMAGE_MASK_LP_MODEL_PATH', './egoblur/ego_blur_lp.jit')
+    IMAGE_MASK_FACE_MODEL_SCORE_THRESHOLD = float(os.getenv('IMAGE_MASK_FACE_MODEL_SCORE_THRESHOLD', '0.8'))
+    IMAGE_MASK_LP_MODEL_SCORE_THRESHOLD = float(os.getenv('IMAGE_MASK_LP_MODEL_SCORE_THRESHOLD', '0.8'))
+    IMAGE_MASK_NMS_IOU_THRESHOLD = float(os.getenv('IMAGE_MASK_NMS_IOU_THRESHOLD', '0.3'))
+    IMAGE_MASK_SCALE_FACTOR_DETECTIONS = float(os.getenv('IMAGE_MASK_SCALE_FACTOR_DETECTIONS', '1.05'))
+    # 可识别为原始鱼眼与去畸变图像所在目录名（在数据包 data/ 目录下的子目录名）
+    # 原始鱼眼图像目录名（通常是 "images"）
+    IMAGE_MASK_FISHEYE_DIR_NAME = os.getenv('IMAGE_MASK_FISHEYE_DIR_NAME', 'images')
+    # 去畸变图像目录名（通常是 "undistorted"）
+    IMAGE_MASK_UNDISTORTED_DIR_NAME = os.getenv('IMAGE_MASK_UNDISTORTED_DIR_NAME', 'undistorted')
+
     # ========================================
     # Hugging Face 上传配置 (Hugging Face Upload Configuration)  
     # ========================================
@@ -345,6 +364,7 @@ class Config:
     HF_UPLOAD_ALL_RESULTS = os.getenv('HF_UPLOAD_ALL_RESULTS', 'True').lower() == 'true'  # 是否上传所有结果
     HF_MIN_VALIDATION_SCORE = float(os.getenv('HF_MIN_VALIDATION_SCORE', '60.0'))  # 最小验证分数要求
     HF_EXCLUDE_FAILED_PROCESSING = os.getenv('HF_EXCLUDE_FAILED_PROCESSING', 'False').lower() == 'true'  # 是否排除处理失败的文件
+    HF_EXCLUDE_UNMASKED_IMAGES = os.getenv('HF_EXCLUDE_UNMASKED_IMAGES', 'True').lower() == 'true'  # 是否排除未遮挡的原始图像(camera/和undistorted/)
     
     # 获取场景特定阈值的辅助方法
     @classmethod
@@ -438,8 +458,11 @@ class Config:
         # 创建必要的目录
         os.makedirs(cls.DOWNLOAD_PATH, exist_ok=True)
         os.makedirs(cls.PROCESSED_PATH, exist_ok=True)
+        os.makedirs(os.path.join(cls.PROCESSED_PATH, 'data'), exist_ok=True)  # 创建processed/data目录
         os.makedirs(cls.PROCESSING_OUTPUT_PATH, exist_ok=True)
         os.makedirs(cls.PROCESSORS_EXE_PATH, exist_ok=True)
+        os.makedirs(cls.ARCHIVE_OUTPUT_PATH, exist_ok=True)
+        os.makedirs(os.path.join(cls.ARCHIVE_OUTPUT_PATH, 'data'), exist_ok=True)  # 创建archive/data目录
         os.makedirs(os.path.dirname(cls.LOG_FILE), exist_ok=True)
         os.makedirs('data', exist_ok=True)
         

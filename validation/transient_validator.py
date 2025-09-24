@@ -630,7 +630,7 @@ class TransientValidator(BaseValidator):
         
         transient_validation: {
             transient_detection: {
-                decision: str,           # 来自ValidationDecisionContract (PASS/NEED_REVIEW/REJECT/ERROR)
+                decision: str,           # (PASS/NEED_REVIEW/REJECT/ERROR)
                 metrics: {
                     WDD: float,          # 加权检测密度
                     WPO: float,          # 加权人员占用率 

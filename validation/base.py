@@ -14,9 +14,8 @@ Key Validation Metrics (for transient object detection):
   Higher values create unwanted artifacts in 3D models as the photographer shouldn't be in the scene
 
 数据契约说明：
-- 所有validator必须返回符合STANDARD_METADATA_FORMAT的ValidationResult
+- 所有validator必须返回标准的ValidationResult
 - metadata必须包含{validator_name}_validation字段
-- decision字段必须使用ValidationDecisionContract中定义的值
 """
 
 from abc import ABC, abstractmethod
@@ -35,17 +34,20 @@ class ValidationLevel(Enum):
 class ValidationResult:
     """
     Standardized validation result structure
-    
+
+    IMPORTANT: Score vs is_valid Mechanism
+    =======================================
+    - score (0-100): Quality metric for tracking/reporting, NOT a gate
+    - is_valid (True/False): The actual gate that determines if processing proceeds
+    - A package can have low score (e.g., 40/100) but still process if is_valid=True
+    - is_valid is based on error count/type, NOT on score threshold
+    - Only is_valid=False blocks 3D reconstruction processing
+
     数据契约要求：
     ===== METADATA结构契约 =====
-    metadata必须遵循STANDARD_METADATA_FORMAT，包含：
-    
-    1. 基础管理信息（由ValidationManager添加）：
-       - manager_version: str
-       - selected_validator: str  
-       - auto_selected: bool
-       
-    2. 提取的元数据（从数据包解析）：
+    metadata必须包含：
+
+    1. 提取的元数据（从数据包解析）：
        - extracted_metadata: Dict (包含start_time, duration, location等)
        
     3. VALIDATOR结果（每个validator必须添加）：

@@ -110,9 +110,7 @@ class HuggingFaceUploader:
     def _determine_upload_path(self, file_id: str, scene_type: str, original_filename: str) -> str:
         """Determine the upload path within the repository"""
         if Config.HF_ORGANIZE_BY_SCENE:
-            # Organize by scene type (indoor/outdoor)
-            scene_subdir = "outdoor" if scene_type.lower() == "outdoor" else "indoor"
-            
+            # Use single "data" folder instead of scene-specific subdirectories
             if Config.HF_USE_FILE_ID_NAMING:
                 # Use file ID as filename
                 filename = f"{file_id}.zip"
@@ -120,7 +118,7 @@ class HuggingFaceUploader:
                 # Use original filename
                 filename = original_filename
             
-            upload_path = f"{scene_subdir}/{filename}"
+            upload_path = f"data/{filename}"
         else:
             # Flat structure
             if Config.HF_USE_FILE_ID_NAMING:
@@ -332,10 +330,9 @@ class HuggingFaceUploader:
             # Get repository file list
             repo_files = self.api.list_repo_files(repo_id=self.repo_id, repo_type="dataset")
             
-            # Filter by scene type if specified
-            if scene_type:
-                scene_subdir = "outdoor" if scene_type.lower() == "outdoor" else "indoor"
-                repo_files = [f for f in repo_files if f.startswith(f"{scene_subdir}/")]
+            # Filter for data folder files (since we now use single data folder)
+            if Config.HF_ORGANIZE_BY_SCENE:
+                repo_files = [f for f in repo_files if f.startswith("data/")]
             
             # Filter for ZIP files
             zip_files = [f for f in repo_files if f.endswith('.zip')]

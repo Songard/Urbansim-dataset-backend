@@ -28,9 +28,7 @@ This stage validates the fundamental structure and files of MetaCam data package
 #### 1.1 Directory Structure Validation
 
 **Required Directories** (per `metacam_schema.yaml`):
-- `camera/` - Camera data directory
-  - `camera/left/` - Left camera image sequence
-  - `camera/right/` - Right camera image sequence  
+- `images/` - Camera image data directory
 - `data/` - Raw sensor data directory
 - `info/` - Device information and configuration directory
 
@@ -251,10 +249,10 @@ This stage analyzes camera image sequences for moving obstacles (people, dogs, e
 Combined Score = (Basic Format Score × 0.7) + (Transient Detection Score × 0.3)
 ```
 
-**Overall Validation Logic**:
-- **PASS**: Basic format validation passes (regardless of transient detection)
-- **Enhanced PASS**: Both basic format and transient detection pass
-- **FAIL**: Basic format validation fails
+**Overall Validation Logic** (After Recent Updates):
+- **PASS**: Both basic format AND transient detection must pass
+- **FAIL**: Either basic format validation fails OR transient detection cannot be performed
+- **Note**: Transient detection is now mandatory - missing camera directory will fail validation
 
 **Metadata Integration**:
 - Transient detection results added to validation metadata
@@ -273,10 +271,33 @@ Combined Score = (Basic Format Score × 0.7) + (Transient Detection Score × 0.3
 
 ## Validation Results & Error Handling
 
+### Score vs is_valid Mechanism
+
+**Important**: The validation system uses two separate mechanisms:
+
+1. **Score (0-100)**: A quality metric indicating overall data quality
+   - Starting score: 100 points
+   - Each error: -15 points
+   - Each warning: -3 points
+   - Each missing file/directory: -15 points
+   - Used for: Quality tracking, Google Sheets display, analysis
+
+2. **is_valid (True/False)**: The gate for processing
+   - Based on **error count**, NOT score
+   - STRICT mode: No errors allowed
+   - STANDARD mode: No critical errors, ≤2 missing files allowed
+   - LENIENT mode: Only critical errors block processing
+   - **This determines if data proceeds to 3D reconstruction**
+
+**Key Point**: A data package can have a low score (e.g., 40/100) but still have `is_valid=True` if it has no critical errors. However, with recent changes:
+- Missing camera directory → is_valid=False (blocks processing)
+- TransientValidator failure → is_valid=False (blocks processing)
+- MetaCam format errors → is_valid=False (blocks processing)
+
 ### Status Levels
-- **PASS**: All critical validations successful, data ready for processing
-- **WARNING**: Minor issues detected, manual review recommended but processing can continue
-- **ERROR**: Critical issues detected, data rejected and processing halted
+- **PASS**: All critical validations successful (is_valid=True), data ready for processing
+- **WARNING**: Minor issues detected, manual review recommended but processing can continue if is_valid=True
+- **ERROR**: Critical issues detected (is_valid=False), data rejected and processing halted
 
 ### Enhanced Error Messaging
 
@@ -327,42 +348,83 @@ All validation results are:
 
 ## Usage
 
-### Automatic Pipeline Validation
+### Direct Validation Functions
 
-The validation system runs automatically when processing MetaCam data packages. The system detects MetaCam format and triggers pipeline validation:
+The validation system provides simple, direct functions for each validation type:
 
 ```python
-from validation.manager import ValidationManager
+from validation import validate_metacam, validate_archive_metacam, validate_processed_metacam
 
-validator = ValidationManager()
-# Automatically detects MetaCam format and runs pipeline validation
-results = validator.validate("/path/to/metacam/data")
+# Validate original MetaCam data (includes pipeline with transient detection)
+result = validate_metacam("/path/to/metacam/data")
+
+# Validate archive MetaCam data
+result = validate_archive_metacam("/path/to/archive/data")
+
+# Validate processed MetaCam data
+result = validate_processed_metacam("/path/to/processed/data")
+
+# Run only transient detection (requires images directory)
+from validation import validate_transient_only
+result = validate_transient_only("/path/to/data")
 ```
 
-### Manual Validator Selection
+### Validation Levels
 
-You can also run individual validators manually:
+All validation functions support different strictness levels:
 
 ```python
-# Run only basic format validation
-results = validator.validate("/path/to/data", validator_name="MetaCamValidator")
+from validation import ValidationLevel
 
-# Run only transient detection (requires camera directory)
-results = validator.validate("/path/to/data", validator_name="TransientValidator")
+# Strict validation (all checks must pass)
+result = validate_metacam("/path/to/data", ValidationLevel.STRICT)
+
+# Standard validation (default)
+result = validate_metacam("/path/to/data", ValidationLevel.STANDARD)
+
+# Lenient validation (allows some missing optional components)
+result = validate_metacam("/path/to/data", ValidationLevel.LENIENT)
 ```
 
 ### Pipeline Validation Results
 
-Pipeline validation returns enhanced results with combined metrics:
+The `validate_metacam()` function automatically runs pipeline validation (MetaCam + Transient detection) and returns enhanced results:
 
 ```python
-if results.validator_type == "Pipeline(MetaCam+Transient)":
+result = validate_metacam("/path/to/metacam/data")
+
+# Check if pipeline validation was completed
+if result.validator_type == "Pipeline(MetaCam+Transient)":
     # Access pipeline-specific metadata
-    pipeline_info = results.metadata['validation_pipeline']
+    pipeline_info = result.metadata['validation_pipeline']
     base_score = pipeline_info['base_validation']['score']
     transient_score = pipeline_info['transient_validation']['score']
     combined_score = pipeline_info['combined_score']
+
+    print(f"Base validation: {base_score}")
+    print(f"Transient detection: {transient_score}")
+    print(f"Combined score: {combined_score}")
+
+# Access transient detection results (if available)
+if 'transient_validation' in result.metadata:
+    transient_info = result.metadata['transient_validation']
+    if 'transient_detection' in transient_info:
+        detection = transient_info['transient_detection']
+        wdd = detection.get('WDD', 'N/A')
+        wpo = detection.get('WPO', 'N/A')
+        sai = detection.get('SAI', 'N/A')
+        print(f"WDD: {wdd}, WPO: {wpo}, SAI: {sai}")
 ```
+
+### Simple API Design
+
+The new validation API is designed to be simple and direct:
+
+- **No complex managers or registrations** - just import and call
+- **Clear function names** - each validator has its own function
+- **Consistent interface** - all functions take the same parameters
+- **Automatic pipeline logic** - `validate_metacam()` includes transient detection
+- **Preserved functionality** - all existing validation logic is maintained
 
 ## Maintenance
 
@@ -374,5 +436,5 @@ This documentation should be updated whenever:
 
 ---
 
-*Last Updated: 2025-08-15 - Enhanced Error Handling and Device ID Extraction*
-*Version: 3.0 - Complete validation pipeline with improved error messaging, device ID extraction, and flexible file naming support*
+*Last Updated: 2025-09-17 - Simplified Validation API*
+*Version: 4.0 - Simplified direct function API, removed complex ValidationManager, maintained all validation functionality*

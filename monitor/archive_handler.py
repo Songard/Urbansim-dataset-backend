@@ -11,7 +11,7 @@ import tarfile
 import gzip
 
 from config import Config
-from validation import ValidationManager, ValidationLevel
+from validation import validate_metacam, ValidationLevel
 from utils.validators import validate_scene_naming, validate_extracted_file_size, validate_pcd_scale
 
 logger = logging.getLogger(__name__)
@@ -44,8 +44,7 @@ class ArchiveHandler:
     def __init__(self):
         """初始化压缩文件处理器"""
         self.temp_extract_dir = None
-        self.validation_manager = ValidationManager()
-        logger.info("ArchiveHandler initialized with new validation system")
+        logger.info("ArchiveHandler initialized")
     
     def detect_format(self, file_path: str) -> Optional[str]:
         """
@@ -439,8 +438,9 @@ class ArchiveHandler:
                     if validate_data_format:
                         logger.info("Starting data format validation...")
                         try:
-                            validation_result = self.validation_manager.validate(
-                                extract_result, 
+                            # 下载后验证阶段：使用简化的MetaCam验证函数
+                            validation_result = validate_metacam(
+                                extract_result,
                                 ValidationLevel.STANDARD
                             )
                             

@@ -269,7 +269,7 @@ Options:
 python main.py --file /path/to/archive.zip
 
 # Test validation only
-python -m validation.manager /path/to/extracted/data
+python -c "from validation import validate_metacam; print(validate_metacam('/path/to/extracted/data'))"
 
 # Check system connectivity
 python main.py --test-connection
@@ -318,21 +318,28 @@ The system performs comprehensive validation of MetaCam data packages. For detai
 
 ### Quick Validation Overview
 
-| Validation Type | Purpose | Fail Conditions |
-|----------------|---------|-----------------|
-| **File Structure** | Ensures required directories and files exist | Missing critical files/folders |
-| **Metadata** | Validates recording information and duration | Invalid duration (<3min or >9min) |
-| **Point Cloud Scale** | Verifies spatial scale for reconstruction | Scale outside acceptable range |
-| **Transient Detection** | AI analysis for moving obstacles | High obstacle density (configurable) |
-| **Device Information** | Extracts and validates device metadata | Missing device info |
+| Validation Type | Purpose | Fail Conditions (blocks processing?) |
+|----------------|---------|---------------------------------------|
+| **File Structure** | Ensures required directories and files exist | Missing critical files/folders (Yes) |
+| **Metadata** | Validates recording information and duration | Invalid duration (<3min or >9min) (Yes) |
+| **Camera Directory** | Required for transient detection | Missing camera directory (Yes - NEW) |
+| **Transient Detection** | AI analysis for moving obstacles | Cannot run or fails (Yes - NEW) |
+| **Point Cloud Scale** | Verifies spatial scale for reconstruction | Scale outside range (No - warning only) |
+| **Device Information** | Extracts and validates device metadata | Missing device info (No - warning only) |
+
+**Important Note on Scoring**:
+- **Score (0-100)**: Quality metric for tracking and reporting
+- **is_valid (True/False)**: The actual gate for processing
+- Processing requires `is_valid=True`, NOT a minimum score
+- Missing camera directory or failed transient detection now sets `is_valid=False`
 
 ### Validation Results
 
 The system provides color-coded validation results in Google Sheets:
 
-- 🟢 **Green**: Validation passed, data ready for processing
-- 🟡 **Yellow**: Warnings detected, manual review recommended  
-- 🔴 **Red**: Critical errors, data rejected
+- 🟢 **Green**: Validation passed (is_valid=True, score≥90), processing will proceed
+- 🟡 **Yellow**: Warnings present (is_valid=True, score 70-89), processing continues
+- 🔴 **Red**: Critical errors (is_valid=False), processing blocked regardless of score
 - ⚪ **Gray**: Processing incomplete or unknown status
 
 ## Google Sheets Output
@@ -437,9 +444,11 @@ Urbansim/
 │   └── data_processor.py           # 3D reconstruction processing pipeline
 ├── 
 ├── validation/                      # Data validation system
-│   ├── manager.py                  # Validation pipeline coordinator
+│   ├── __init__.py                 # Direct validation functions
 │   ├── base.py                     # Base validation framework
 │   ├── metacam.py                  # MetaCam format validator
+│   ├── archive_metacam.py          # Archive MetaCam validator
+│   ├── processed_metacam.py        # Processed MetaCam validator
 │   └── transient_validator.py      # AI-based quality assessment
 ├── 
 ├── detection/                       # AI detection components
@@ -476,7 +485,7 @@ To add a new validation component:
 
 1. Create a new validator class inheriting from `BaseValidator`
 2. Implement required validation methods
-3. Register the validator in `validation/manager.py`
+3. Add a new validation function in `validation/__init__.py`
 4. Update `data_schemas/` with any new schema requirements
 5. Modify `sheets/data_mapper.py` to handle new output fields
 

@@ -11,8 +11,9 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from config import Config
+from utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class DriveMonitor:
     """
@@ -348,42 +349,196 @@ class DriveMonitor:
     
     def delete_file(self, file_id: str) -> bool:
         """
-        删除Google Drive上的文件
+        将处理完成的文件移动到processed子目录
         
         Args:
-            file_id (str): 要删除的文件ID
+            file_id (str): 要移动的文件ID
             
         Returns:
-            bool: 删除是否成功
+            bool: 移动是否成功
         """
         try:
             # 检查是否启用了自动删除功能
             if not Config.AUTO_DELETE_SOURCE_FILES:
-                logger.info(f"Auto-delete disabled, skipping deletion of file {file_id}")
+                logger.info(f"Auto-delete disabled, skipping move of file {file_id}")
                 return False
             
             # 先获取文件信息用于日志记录
             file_metadata = self.get_file_metadata(file_id)
             file_name = file_metadata.get('name', 'Unknown') if file_metadata else 'Unknown'
             
-            logger.info(f"Attempting to delete file: {file_name} (ID: {file_id})")
+            logger.info(f"Attempting to move file to processed folder: {file_name} (ID: {file_id})")
             
-            # 执行删除操作
-            self.service.files().delete(fileId=file_id).execute()
+            # 确保processed目录存在
+            processed_folder_id = self._ensure_processed_folder()
+            if not processed_folder_id:
+                logger.error("Failed to create or find processed folder")
+                return False
             
-            logger.success(f"Successfully deleted file from Google Drive: {file_name}")
+            # 获取当前父目录
+            current_parents = file_metadata.get('parents', []) if file_metadata else []
+            
+            # 移动文件到processed目录
+            self.service.files().update(
+                fileId=file_id,
+                addParents=processed_folder_id,
+                removeParents=','.join(current_parents),
+                fields='id, parents',
+                supportsAllDrives=True
+            ).execute()
+            
+            logger.info(f"Successfully moved file to processed folder: {file_name}")
             return True
             
         except HttpError as e:
             if e.resp.status == 404:
-                logger.warning(f"File {file_id} not found, may have been already deleted")
+                logger.warning(f"File {file_id} not found, may have been already moved")
                 return True  # 文件不存在也算成功
             else:
-                logger.error(f"HTTP error deleting file {file_id}: {e}")
+                logger.error(f"HTTP error moving file {file_id}: {e}")
                 return False
         except Exception as e:
-            logger.error(f"Error deleting file {file_id}: {e}")
+            logger.error(f"Error moving file {file_id}: {e}")
             return False
+    
+    def move_failed_file(self, file_id: str) -> bool:
+        """
+        将处理失败的文件移动到failed子目录
+
+        Args:
+            file_id (str): 要移动的文件ID
+
+        Returns:
+            bool: 移动是否成功
+        """
+        try:
+            # 先获取文件信息用于日志记录
+            file_metadata = self.get_file_metadata(file_id)
+            file_name = file_metadata.get('name', 'Unknown') if file_metadata else 'Unknown'
+
+            logger.info(f"Attempting to move failed file to failed folder: {file_name} (ID: {file_id})")
+
+            # 确保failed目录存在
+            failed_folder_id = self._ensure_failed_folder()
+            if not failed_folder_id:
+                logger.error("Failed to create or find failed folder")
+                return False
+
+            # 获取当前父目录
+            current_parents = file_metadata.get('parents', []) if file_metadata else []
+
+            # 移动文件到failed目录
+            self.service.files().update(
+                fileId=file_id,
+                addParents=failed_folder_id,
+                removeParents=','.join(current_parents),
+                fields='id, parents',
+                supportsAllDrives=True
+            ).execute()
+
+            logger.info(f"Successfully moved failed file to failed folder: {file_name}")
+            return True
+
+        except HttpError as e:
+            if e.resp.status == 404:
+                logger.warning(f"File {file_id} not found, may have been already moved")
+                return True  # 文件不存在也算成功
+            else:
+                logger.error(f"HTTP error moving failed file {file_id}: {e}")
+                return False
+        except Exception as e:
+            logger.error(f"Error moving failed file {file_id}: {e}")
+            return False
+
+    def _ensure_failed_folder(self) -> Optional[str]:
+        """
+        确保failed_files子目录存在，如果不存在则创建
+
+        Returns:
+            Optional[str]: failed目录的ID，失败时返回None
+        """
+        try:
+            failed_folder_name = "failed_files"
+
+            # 检查子目录是否已存在
+            existing_folders = self.service.files().list(
+                q=f"'{self.folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and name='{failed_folder_name}' and trashed=false",
+                fields="files(id, name)",
+                supportsAllDrives=True
+            ).execute()
+
+            folders = existing_folders.get('files', [])
+
+            if folders:
+                failed_folder_id = folders[0]['id']
+                logger.debug(f"Found existing failed folder: {failed_folder_id}")
+                return failed_folder_id
+            else:
+                # 创建子目录
+                folder_metadata = {
+                    'name': failed_folder_name,
+                    'mimeType': 'application/vnd.google-apps.folder',
+                    'parents': [self.folder_id]
+                }
+
+                created_folder = self.service.files().create(
+                    body=folder_metadata,
+                    fields='id, name',
+                    supportsAllDrives=True
+                ).execute()
+
+                failed_folder_id = created_folder['id']
+                logger.info(f"Created failed folder: {failed_folder_id}")
+                return failed_folder_id
+
+        except Exception as e:
+            logger.error(f"Error ensuring failed folder exists: {e}")
+            return None
+
+    def _ensure_processed_folder(self) -> Optional[str]:
+        """
+        确保processed_files子目录存在，如果不存在则创建
+
+        Returns:
+            Optional[str]: processed目录的ID，失败时返回None
+        """
+        try:
+            processed_folder_name = "processed_files"
+            
+            # 检查子目录是否已存在
+            existing_folders = self.service.files().list(
+                q=f"'{self.folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and name='{processed_folder_name}' and trashed=false",
+                fields="files(id, name)",
+                supportsAllDrives=True
+            ).execute()
+            
+            folders = existing_folders.get('files', [])
+            
+            if folders:
+                processed_folder_id = folders[0]['id']
+                logger.debug(f"Found existing processed folder: {processed_folder_id}")
+                return processed_folder_id
+            else:
+                # 创建子目录
+                folder_metadata = {
+                    'name': processed_folder_name,
+                    'mimeType': 'application/vnd.google-apps.folder',
+                    'parents': [self.folder_id]
+                }
+                
+                created_folder = self.service.files().create(
+                    body=folder_metadata,
+                    fields='id, name',
+                    supportsAllDrives=True
+                ).execute()
+                
+                processed_folder_id = created_folder['id']
+                logger.info(f"Created processed folder: {processed_folder_id}")
+                return processed_folder_id
+                
+        except Exception as e:
+            logger.error(f"Error ensuring processed folder exists: {e}")
+            return None
     
     def stop_monitoring(self):
         """停止监控"""

@@ -3,9 +3,11 @@ import sys
 import argparse
 import signal
 import time
+import subprocess
+import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 from config import Config
 from utils.logger import get_logger, log_system_startup, log_system_shutdown, log_error_with_context
@@ -24,7 +26,7 @@ from monitor.file_tracker import FileTracker
 from monitor.file_downloader import FileDownloader
 from monitor.archive_handler import ArchiveHandler
 from sheets.sheets_writer import SheetsWriter
-from validation.manager import ValidationManager
+# ValidationManager removed - using direct validation functions now
 from processors.data_processor import DataProcessor
 from utils.error_formatter import ErrorFormatter
 from utils.huggingface_uploader import upload_processed_package
@@ -97,7 +99,7 @@ class GoogleDriveMonitorSystem:
             self.file_downloader = FileDownloader()
             self.archive_handler = ArchiveHandler()
             self.sheets_writer = SheetsWriter()
-            self.validation_manager = ValidationManager()
+            # ValidationManager removed - using direct validation functions now
             self.data_processor = DataProcessor()
             
             # 初始化邮件通知器（如果启用且可用）
@@ -499,6 +501,17 @@ class GoogleDriveMonitorSystem:
                                     if output_files.get('colorized_las') and output_files.get('transforms_json'):
                                         logger.info("Creating final processed package...")
                                         
+                                        # Determine processing output directory from output files for later use
+                                        processing_output_path = None
+                                        if output_files.get('colorized_las'):
+                                            colorized_las_path = Path(output_files['colorized_las'])
+                                            processing_output_path = colorized_las_path.parent
+                                            logger.info(f"Detected processing output directory from colorized.las: {processing_output_path}")
+                                        elif output_files.get('transforms_json'):
+                                            transforms_path = Path(output_files['transforms_json'])
+                                            processing_output_path = transforms_path.parent
+                                            logger.info(f"Detected processing output directory from transforms.json: {processing_output_path}")
+                                        
                                         # Extract scene type from validation result (use same logic as sheet upload)
                                         scene_type = "outdoor"  # default fallback
                                         
@@ -513,13 +526,16 @@ class GoogleDriveMonitorSystem:
                                         logger.info(f"Detected scene type: {scene_type}")
                                         
                                         # Use the original_extracted_path (未处理的解压路径) for finding original files
+                                        # Pass the processing output path for finding masked images
                                         package_result = create_final_package(
                                             original_path=original_extracted_path,
                                             output_files=output_files,
                                             package_name=Path(original_extracted_path).name,
                                             file_id=file_id,
                                             output_dir="./processed",
-                                            scene_type=scene_type
+                                            scene_type=scene_type,
+                                            exclude_unmasked_images=Config.HF_EXCLUDE_UNMASKED_IMAGES,
+                                            processing_output_path=str(processing_output_path)
                                         )
                                         
                                         if package_result['success']:
@@ -535,19 +551,24 @@ class GoogleDriveMonitorSystem:
                                             processing_results['final_package_result'] = package_result
                                             
                                             # Upload to Hugging Face if enabled
-                                            hf_upload_result = self._upload_to_huggingface(
-                                                package_path=final_package_path,
-                                                file_id=file_id,
-                                                scene_type=scene_type,
-                                                validation_score=validation_score if isinstance(validation_score, (int, float)) else None,
-                                                processing_success=True,
-                                                metadata={
-                                                    'file_name': file_name,
-                                                    'upload_time': file_info.get('createdTime', ''),
-                                                    'compression_duration': compression_duration,
-                                                    'colmap_result': package_result.get('colmap_result', {})
-                                                }
-                                            )
+                                            hf_upload_result = None
+                                            if Config.ENABLE_HF_UPLOAD:
+                                                hf_upload_result = self._upload_to_huggingface(
+                                                    package_path=final_package_path,
+                                                    file_id=file_id,
+                                                    scene_type=scene_type,
+                                                    validation_score=validation_score if isinstance(validation_score, (int, float)) else None,
+                                                    processing_success=True,
+                                                    metadata={
+                                                        'file_name': file_name,
+                                                        'upload_time': file_info.get('createdTime', ''),
+                                                        'compression_duration': compression_duration,
+                                                        'colmap_result': package_result.get('colmap_result', {})
+                                                    }
+                                                )
+                                            else:
+                                                logger.info("Hugging Face upload disabled by configuration; skipping upload")
+                                                hf_upload_result = {'skipped': True, 'reason': 'disabled_by_config'}
                                             processing_results['hf_upload_result'] = hf_upload_result
                                             
                                             # Check if HuggingFace upload was successful and delete source file if configured
@@ -593,7 +614,15 @@ class GoogleDriveMonitorSystem:
                     logger.info("数据处理已禁用")
                 elif not data_validation_result or not data_validation_result.get('is_valid', False):
                     processing_status = "跳过（验证未通过）"
-                    logger.info("跳过数据处理：数据验证未通过")
+                    # 获取具体的验证失败原因
+                    if data_validation_result:
+                        errors = data_validation_result.get('errors', [])
+                        if errors:
+                            logger.warning(f"跳过数据处理：数据验证未通过 - {'; '.join(errors[:2])}")  # 显示前两个错误
+                        else:
+                            logger.warning("跳过数据处理：数据验证未通过")
+                    else:
+                        logger.warning("跳过数据处理：数据验证未通过")
                 else:
                     processing_status = "跳过（条件不满足）"
                     logger.info("跳过数据处理：条件不满足")
@@ -617,9 +646,26 @@ class GoogleDriveMonitorSystem:
                     if 'metadata' not in data_validation_result:
                         data_validation_result['metadata'] = {}
                     data_validation_result['metadata']['processing_pipeline'] = processing_results
-                
+
                 # 更新sheets_record的validation_result
                 sheets_record['validation_result'] = data_validation_result
+
+                # 【关键修复】如果处理成功，更新关键状态字段
+                if processing_results.get('overall_success', False):
+                    # 检查是否成功找到了输出文件
+                    final_package_path = processing_results.get('final_package_path')
+                    if final_package_path:
+                        # 处理完全成功，更新状态
+                        sheets_record['extract_status'] = 'Success (Processing Completed)'
+                        sheets_record['error_message'] = ''  # 清除错误信息
+
+                        # 如果原始验证分数低，但处理成功，可以适当调整显示
+                        original_score = data_validation_result.get('score', 0) if data_validation_result else 0
+                        if original_score < 60:  # 如果原始分数较低但处理成功
+                            sheets_record['validation_score'] = f"{original_score:.1f}/100 (Processing: Success)"
+                    else:
+                        # 处理运行但没有最终包
+                        sheets_record['extract_status'] = 'Partial Success (Processing Issues)'
             
             # 写入Google Sheets（包含处理结果信息）
             if self.sheets_writer.append_record_v2(sheets_record):
@@ -643,9 +689,11 @@ class GoogleDriveMonitorSystem:
                 }
             )
             
-            # 7. 移动文件到processed目录
+            # 7. 移动文件到processed/data目录
             if Config.CLEAN_TEMP_FILES:
-                processed_path = Path(Config.PROCESSED_PATH) / file_name
+                processed_data_dir = Path(Config.PROCESSED_PATH) / "data"
+                processed_data_dir.mkdir(parents=True, exist_ok=True)
+                processed_path = processed_data_dir / file_name
                 try:
                     Path(download_path).rename(processed_path)
                     logger.debug(f"文件已移动到: {processed_path}")
@@ -660,7 +708,66 @@ class GoogleDriveMonitorSystem:
             from utils.error_formatter import ErrorFormatter
             formatted_time = ErrorFormatter.format_duration_seconds(process_time)
             logger.success(f"文件处理完成: {file_name} (耗时 {formatted_time})")
-            
+
+            # Check if HuggingFace upload was successful; if not, move to failed folder
+            should_move_to_failed = False
+            hf_failure_reason = ""
+
+            if not Config.ENABLE_HF_UPLOAD:
+                # HF upload is disabled, consider as failure
+                should_move_to_failed = True
+                hf_failure_reason = "HF upload disabled by configuration"
+            elif processing_results:
+                hf_upload_result = processing_results.get('hf_upload_result')
+                if hf_upload_result:
+                    if hf_upload_result.get('skipped'):
+                        # Upload was skipped, consider as failure
+                        should_move_to_failed = True
+                        hf_failure_reason = f"HF upload skipped: {hf_upload_result.get('reason', 'unknown')}"
+                    elif not hf_upload_result.get('success', False):
+                        # Upload failed
+                        should_move_to_failed = True
+                        hf_failure_reason = f"HF upload failed: {hf_upload_result.get('error', 'unknown error')}"
+                else:
+                    # No HF upload result, likely because final package creation failed
+                    should_move_to_failed = True
+                    hf_failure_reason = "No HF upload attempted (likely package creation failed)"
+            else:
+                # HF upload is enabled but no processing results available
+                should_move_to_failed = True
+                hf_failure_reason = "HF upload enabled but no processing results available"
+
+            if should_move_to_failed:
+                logger.warning(f"Moving file to failed folder due to HF upload issue: {hf_failure_reason}")
+
+                # Move the file to failed folder in Google Drive
+                if self.drive_monitor:
+                    try:
+                        move_success = self.drive_monitor.move_failed_file(file_id)
+                        if move_success:
+                            logger.info(f"File moved to failed_files folder due to HF upload failure: {file_name}")
+                        else:
+                            logger.warning(f"Could not move file to failed_files folder: {file_name}")
+                    except Exception as move_error:
+                        logger.error(f"Error moving file to failed_files folder: {move_error}")
+
+                # Update file tracker status to reflect the failure
+                self.file_tracker.add_processed_file(
+                    file_id,
+                    file_name,
+                    status="failed",
+                    metadata={
+                        'error': hf_failure_reason,
+                        'original_processing': 'success',
+                        'failure_reason': 'hf_upload_unsuccessful'
+                    }
+                )
+
+                self.stats['files_failed'] += 1
+                self.stats['files_processed'] -= 1  # Adjust the count since this is now a failure
+
+                return False
+
             return True
             
         except Exception as e:
@@ -719,6 +826,109 @@ class GoogleDriveMonitorSystem:
         except Exception as e:
             logger.error(f"Error in source file deletion check for {file_name}: {e}")
     
+    def _run_image_masking(self, data_path: str) -> Dict[str, Any]:
+        """
+        Run image masking script for both fisheye (images) and undistorted image folders.
+        - Uses processors/image_masker.py via subprocess
+        - Reads model paths and thresholds from Config
+        - Saves outputs with new naming scheme: fisheye/fisheye_mask and images/images_mask
+        """
+        details: Dict[str, Any] = {
+            'success': True,
+            'runs': []
+        }
+        try:
+            if not Config.IMAGE_MASKING_ENABLED:
+                details['success'] = False
+                details['skipped'] = True
+                details['reason'] = 'IMAGE_MASKING_ENABLED is False'
+                logger.info('Image masking skipped by configuration')
+                return details
+            
+            script_path = Path(__file__).resolve().parent / 'processors' / 'image_masker.py'
+            if not script_path.exists():
+                raise FileNotFoundError(f"image_masker.py not found at {script_path}")
+
+            base_path = Path(data_path)
+            logger.info(f"Running image masking in: {base_path}")
+
+            # Check for images directory in parent (since data_path points to 'data' subdirectory)
+            parent_path = base_path
+            images_dir = parent_path / 'images'
+            if images_dir.exists() and images_dir.is_dir():
+                logger.info(f"Found images directory: {images_dir}")
+                # Create output directories in the same location as images directory
+                fisheye_output_dir = parent_path / "fisheye"
+                fisheye_mask_dir = parent_path / "fisheye_mask"
+                fisheye_output_dir.mkdir(parents=True, exist_ok=True)
+                fisheye_mask_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Run masking on images directory
+                self._run_masking_on_directory("fisheye", images_dir, fisheye_output_dir, fisheye_mask_dir, script_path, details)
+            
+            # Check if we processed any directories
+            if not details['runs']:
+                logger.warning(f'No images directory found for masking in {parent_path}')
+                logger.warning('Expected: images/ directory in parent of data/')
+                return {'success': False, 'runs': [], 'error': 'no_image_dirs'}
+
+            return details
+        except Exception as e:
+            logger.error(f"Error during image masking: {e}")
+            return {'success': False, 'error': str(e), 'runs': details.get('runs', [])}
+    
+    def _run_masking_on_directory(self, label: str, src_dir: Path, output_dir: Path, mask_dir: Path, script_path: Path, details: Dict[str, Any]):
+        """Run image masking on a specific directory"""
+        logger.info(f"Creating masked images for {label}:")
+        logger.info(f"  Input: {src_dir}")
+        logger.info(f"  Output images: {output_dir}")
+        logger.info(f"  Output masks: {mask_dir}")
+        
+        cmd: List[str] = [
+            sys.executable,
+            str(script_path),
+            '--input_dir', str(src_dir.resolve()),
+            '--output_dir', str(output_dir.resolve()),
+            '--mask_dir', str(mask_dir.resolve()),
+            '--face_model_score_threshold', str(Config.IMAGE_MASK_FACE_MODEL_SCORE_THRESHOLD),
+            '--lp_model_score_threshold', str(Config.IMAGE_MASK_LP_MODEL_SCORE_THRESHOLD),
+            '--nms_iou_threshold', str(Config.IMAGE_MASK_NMS_IOU_THRESHOLD),
+            '--scale_factor_detections', str(Config.IMAGE_MASK_SCALE_FACTOR_DETECTIONS)
+        ]
+        # Optional model paths
+        if Config.IMAGE_MASK_FACE_MODEL_PATH:
+            cmd += ['--face_model_path', Config.IMAGE_MASK_FACE_MODEL_PATH]
+        if Config.IMAGE_MASK_LP_MODEL_PATH:
+            cmd += ['--lp_model_path', Config.IMAGE_MASK_LP_MODEL_PATH]
+
+        cmd_str = ' '.join([f'"{c}"' if ' ' in str(c) else str(c) for c in cmd])
+        logger.info(f"Running image_masker for {label}: {cmd_str}")
+
+        start_time = time.time()
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        duration = time.time() - start_time
+        
+        run_result = {
+            'label': label,
+            'input': str(src_dir),
+            'output_images': str(output_dir),
+            'output_masks': str(mask_dir),
+            'returncode': proc.returncode,
+            'duration_sec': duration,
+            'stdout_tail': '\n'.join(proc.stdout.splitlines()[-30:]) if proc.stdout else '',
+            'stderr_tail': '\n'.join(proc.stderr.splitlines()[-30:]) if proc.stderr else ''
+        }
+        if proc.returncode != 0:
+            details['success'] = False
+            run_result['success'] = False
+            logger.warning(f"image_masker failed for {label} (code {proc.returncode})")
+        else:
+            run_result['success'] = True
+            logger.info(f"image_masker completed for {label} in {duration:.1f}s")
+            logger.info(f"  - Masked images saved to: {output_dir}")
+            logger.info(f"  - Masks saved to: {mask_dir}")
+        details['runs'].append(run_result)
+
     def _upload_to_huggingface(self, package_path: str, file_id: str, scene_type: str, 
                                validation_score: float = None, processing_success: bool = True,
                                metadata: Dict[str, Any] = None) -> Dict[str, Any]:
@@ -812,7 +1022,18 @@ class GoogleDriveMonitorSystem:
             )
             
             self.stats['files_failed'] += 1
-            
+
+            # Move failed file to Google Drive failed_files folder
+            if self.drive_monitor:
+                try:
+                    move_success = self.drive_monitor.move_failed_file(file_info['id'])
+                    if move_success:
+                        logger.info(f"Failed file moved to failed_files folder: {file_info['name']}")
+                    else:
+                        logger.warning(f"Could not move failed file to failed_files folder: {file_info['name']}")
+                except Exception as move_error:
+                    logger.error(f"Error moving failed file to failed_files folder: {move_error}")
+
         except Exception as e:
             logger.error(f"记录失败信息时出错: {e}")
     
